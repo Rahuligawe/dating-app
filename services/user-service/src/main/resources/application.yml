@@ -57,8 +57,8 @@ eureka:
 #    prefer-ip-address: true
 
 aws:
-  access-key: ${AWS_ACCESS_KEY}
-  secret-key: ${AWS_SECRET_KEY}
+  access-key: bfe33676d8da22f3339a583595a907462b9cadb0
+  secret-key: 5VOas9qNQuUrl+MpwqbzCwX751D5EwFRHMwbICP0O1w=
   s3:
     bucket: auralink-photos
     region: ap-mumbai-1
