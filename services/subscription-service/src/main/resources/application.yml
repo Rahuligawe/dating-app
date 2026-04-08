@@ -26,7 +26,7 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
   data:
     redis:
-      url: redis://default:gQAAAAAAAXDTAAIncDE3YWRhYzNkYjU2ZDM0OWQyYTFiMTQzYTQ2MzJkNzY3ZHAxOTQ0MTk@kind-yeti-94419.upstash.io:6379
+      url: rediss://default:gQAAAAAAAXDTAAIncDE3YWRhYzNkYjU2ZDM0OWQyYTFiMTQzYTQ2MzJkNzY3ZHAxOTQ0MTk@kind-yeti-94419.upstash.io:6379
 
 eureka:
   client:
