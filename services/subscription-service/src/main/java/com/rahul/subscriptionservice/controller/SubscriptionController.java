@@ -10,7 +10,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -28,6 +31,22 @@ public class SubscriptionController {
     public ResponseEntity<UserSubscription> getMySubscription(
             @RequestHeader("X-User-Id") String userId) {
         return ResponseEntity.ok(subscriptionService.getSubscription(userId));
+    }
+
+    // Returns plan + endDate + daysLeft — used by Android SettingsActivity
+    @GetMapping("/my/status")
+    public ResponseEntity<Map<String, Object>> getMyStatus(
+            @RequestHeader("X-User-Id") String userId) {
+        UserSubscription sub = subscriptionService.getSubscription(userId);
+        Map<String, Object> res = new HashMap<>();
+        res.put("plan",     sub.getPlan().name());
+        res.put("isActive", sub.getIsActive());
+        res.put("endDate",  sub.getEndDate() != null ? sub.getEndDate().toString() : null);
+        long daysLeft = (sub.getEndDate() != null && sub.getPlan() != UserSubscription.Plan.FREE)
+                ? ChronoUnit.DAYS.between(LocalDateTime.now(), sub.getEndDate())
+                : 0;
+        res.put("daysLeft", Math.max(0, daysLeft));
+        return ResponseEntity.ok(res);
     }
 
     @GetMapping("/plans/all")

@@ -9,10 +9,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -42,8 +44,45 @@ public class SubscriptionService {
 
     public UserSubscription getSubscription(String userId) {
         return subscriptionRepository.findByUserId(userId)
+                .map(sub -> {
+                    // If paid plan and endDate has passed → auto-expire to FREE
+                    if (sub.getPlan() != Plan.FREE
+                            && sub.getEndDate() != null
+                            && sub.getEndDate().isBefore(LocalDateTime.now())) {
+                        expireSingle(sub);
+                    }
+                    return sub;
+                })
                 .orElse(UserSubscription.builder()
                         .userId(userId).plan(Plan.FREE).isActive(true).build());
+    }
+
+    // ── Scheduled Expiry — runs every 30 minutes ──────────────────────────────
+    @Scheduled(fixedRate = 30 * 60 * 1000)
+    @Transactional
+    public void expireSubscriptions() {
+        List<UserSubscription> expired = subscriptionRepository
+                .findByPlanNotAndEndDateBeforeAndIsActiveTrue(Plan.FREE, LocalDateTime.now());
+        if (expired.isEmpty()) return;
+        log.info("Expiring {} subscription(s)", expired.size());
+        expired.forEach(this::expireSingle);
+    }
+
+    private void expireSingle(UserSubscription sub) {
+        log.info("Subscription expired for user {}: was {}", sub.getUserId(), sub.getPlan());
+        sub.setPlan(Plan.FREE);
+        sub.setIsActive(false);
+        sub.setEndDate(null);
+        subscriptionRepository.save(sub);
+        // Remove Redis premium flag
+        redisTemplate.delete("user:premium:" + sub.getUserId());
+        // Notify user-service via Kafka to reset subscriptionType on profile
+        try {
+            kafkaTemplate.send("subscription.updated", sub.getUserId(),
+                    Map.of("userId", sub.getUserId(), "plan", "FREE"));
+        } catch (Exception e) {
+            log.warn("Kafka notify failed for expiry (non-fatal): {}", e.getMessage());
+        }
     }
 
     // ── [UPDATED] getPlanFeatures — DB se, fallback hardcoded ────────────────
