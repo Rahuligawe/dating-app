@@ -36,7 +36,9 @@ public class UserService {
     // ─── Get Profile ──────────────────────────────────────────────────────────
 
     public UserProfileResponse getProfile(String userId) {
-        return toResponse(findUser(userId));
+        return userProfileRepository.findById(userId)
+                .map(this::toResponse)
+                .orElse(UserProfileResponse.builder().id(userId).build());
     }
 
     // ─── Online Status — Event Based ──────────────────────────────────────────
@@ -135,15 +137,19 @@ public class UserService {
 
         UserProfile saved = userProfileRepository.save(profile);
 
-        kafkaTemplate.send("user.profile.updated", userId, Map.of(
-                "userId", userId,
-                "gender", saved.getGender() != null ? saved.getGender().name() : "",
-                "genderPreference", saved.getGenderPreference() != null
-                        ? saved.getGenderPreference().name() : "",
-                "maxDistanceKm", saved.getMaxDistanceKm() != null ? saved.getMaxDistanceKm() : 50,
-                "locationLat", saved.getLocationLat() != null ? saved.getLocationLat() : 0.0,
-                "locationLong", saved.getLocationLong() != null ? saved.getLocationLong() : 0.0
-        ));
+        try {
+            kafkaTemplate.send("user.profile.updated", userId, Map.of(
+                    "userId", userId,
+                    "gender", saved.getGender() != null ? saved.getGender().name() : "",
+                    "genderPreference", saved.getGenderPreference() != null
+                            ? saved.getGenderPreference().name() : "",
+                    "maxDistanceKm", saved.getMaxDistanceKm() != null ? saved.getMaxDistanceKm() : 50,
+                    "locationLat", saved.getLocationLat() != null ? saved.getLocationLat() : 0.0,
+                    "locationLong", saved.getLocationLong() != null ? saved.getLocationLong() : 0.0
+            ));
+        } catch (Exception e) {
+            log.warn("Kafka send failed (non-fatal): {}", e.getMessage());
+        }
 
         return toResponse(saved);
     }
@@ -203,7 +209,8 @@ public class UserService {
     // ─── Discover Feed ────────────────────────────────────────────────────────
 
     public List<UserProfileResponse> getDiscoverProfiles(String userId, int page, int size) {
-        UserProfile me = findUser(userId);
+        UserProfile me = userProfileRepository.findById(userId).orElse(null);
+        if (me == null || me.getGenderPreference() == null) return List.of();
 
         UserProfile.Gender pref = switch (me.getGenderPreference()) {
             case MALE -> UserProfile.Gender.MALE;
@@ -229,7 +236,11 @@ public class UserService {
 
     public NearbyAlertSettings updateNearbyAlertSettings(String userId,
                                                          NearbyAlertSettings settings) {
-        kafkaTemplate.send("user.nearby.settings", userId, settings);
+        try {
+            kafkaTemplate.send("user.nearby.settings", userId, settings);
+        } catch (Exception e) {
+            log.warn("Kafka send failed (non-fatal): {}", e.getMessage());
+        }
         return settings;
     }
 
