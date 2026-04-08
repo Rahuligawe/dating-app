@@ -6,8 +6,8 @@ spring:
     name: user-service
   datasource:
     url: jdbc:${DATABASE_URL}
-    username: ${PGUSER}
-    password: ${PGPASSWORD}
+    username: ${DB_USER}
+    password: ${DB_PASS}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 3
