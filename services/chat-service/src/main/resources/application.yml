@@ -1,0 +1,37 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: chat-service
+  data:
+    mongodb:
+      uri: mongodb+srv://rigawe91_db_user:zRT6ULQlJ8wjELAp@cluster0.okw0lri.mongodb.net/dating_chat?appName=Cluster0
+      auto-index-creation: true
+    redis:
+      url: redis://default:gQAAAAAAAXDTAAIncDE3YWRhYzNkYjU2ZDM0OWQyYTFiMTQzYTQ2MzJkNzY3ZHAxOTQ0MTk@kind-yeti-94419.upstash.io:6379
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: chat-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true

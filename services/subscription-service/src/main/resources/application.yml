@@ -1,0 +1,47 @@
+server:
+  port: 8091
+
+spring:
+  application:
+    name: subscription-service
+  datasource:
+    url: jdbc:postgresql://db.possrnoowinerucxubpg.supabase.co:5432/postgres
+    username: postgres
+    password: Princeofheart@2026
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 3
+      minimum-idle: 1
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+  data:
+    redis:
+      url: redis://default:gQAAAAAAAXDTAAIncDE3YWRhYzNkYjU2ZDM0OWQyYTFiMTQzYTQ2MzJkNzY3ZHAxOTQ0MTk@kind-yeti-94419.upstash.io:6379
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+
+# ADD to application.yml (at end)
+razorpay:
+  key:
+    id: rzp_test_SX9ltNhrJDqiYU       # Razorpay Dashboard se lo (Test key)
+    secret: wgL0ZWIErl0DvzmOZE9ZTt5a    # Razorpay Dashboard se lo
+
+# Razorpay test keys ke liye:
+# 1. razorpay.com pe account banao
+# 2. Dashboard > API Keys > Generate Test Keys
+# 3. ye keys paste karo yahin

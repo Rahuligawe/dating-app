@@ -1,0 +1,285 @@
+version: '3.8'
+
+services:
+
+  # ─── Infrastructure ──────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: dating-postgres
+    environment:
+      POSTGRES_USER: dating_user
+      POSTGRES_PASSWORD: dating_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/postgres/init_databases.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./database/postgres/schema.sql:/docker-entrypoint-initdb.d/02-schema.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - dating-network
+
+  mongodb:
+    image: mongo:7.0
+    container_name: dating-mongo
+    volumes:
+      - mongo_data:/data/db
+      - ./database/mongodb/chat_schema.js:/docker-entrypoint-initdb.d/chat_schema.js
+    ports:
+      - "27017:27017"
+    networks:
+      - dating-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: dating-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - dating-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: dating-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    networks:
+      - dating-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: dating-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CREATE_TOPICS: >
+        otp.send:1:1,
+        user.created:1:1,
+        user.profile.updated:1:1,
+        swipe.action:1:1,
+        match.create:1:1,
+        chat.create.conversation:1:1,
+        event.created:1:1,
+        event.liked:1:1,
+        mood.posted:1:1,
+        mood.liked:1:1,
+        mood.join.request:1:1,
+        radar.live:1:1,
+        radar.meet.request:1:1,
+        notification.send:1:1,
+        location.nearby:1:1,
+        subscription.updated:1:1
+    networks:
+      - dating-network
+
+  # ─── Service Discovery ───────────────────────────────────
+  eureka-server:
+    image: springcloud/eureka
+    container_name: dating-eureka
+    ports:
+      - "8761:8761"
+    networks:
+      - dating-network
+
+  # ─── Microservices ───────────────────────────────────────
+  api-gateway:
+    build: ./services/api-gateway
+    container_name: dating-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - eureka-server
+    environment:
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - dating-network
+
+  auth-service:
+    build: ./services/auth-service
+    container_name: dating-auth
+    ports:
+      - "8081:8081"
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - eureka-server
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/dating_auth
+      SPRING_DATASOURCE_USERNAME: dating_user
+      SPRING_DATASOURCE_PASSWORD: dating_pass
+      SPRING_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - dating-network
+
+  user-service:
+    build: ./services/user-service
+    container_name: dating-user
+    ports:
+      - "8082:8082"
+    depends_on:
+      - postgres
+      - kafka
+      - eureka-server
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/dating_users
+      SPRING_DATASOURCE_USERNAME: dating_user
+      SPRING_DATASOURCE_PASSWORD: dating_pass
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - dating-network
+
+  swipe-service:
+    build: ./services/swipe-service
+    container_name: dating-swipe
+    ports:
+      - "8083:8083"
+    depends_on: [postgres, redis, kafka, eureka-server]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/dating_swipes
+      SPRING_DATASOURCE_USERNAME: dating_user
+      SPRING_DATASOURCE_PASSWORD: dating_pass
+      SPRING_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - dating-network
+
+  match-service:
+    build: ./services/match-service
+    container_name: dating-match
+    ports:
+      - "8084:8084"
+    depends_on: [postgres, kafka, eureka-server]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/dating_matches
+      SPRING_DATASOURCE_USERNAME: dating_user
+      SPRING_DATASOURCE_PASSWORD: dating_pass
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - dating-network
+
+  chat-service:
+    build: ./services/chat-service
+    container_name: dating-chat
+    ports:
+      - "8085:8085"
+    depends_on: [mongodb, kafka, eureka-server]
+    environment:
+      SPRING_DATA_MONGODB_URI: mongodb+srv://rigawe91_db_user:zRT6ULQlJ8wjELAp@cluster0.okw0lri.mongodb.net/dating_chat
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - dating-network
+
+  event-service:
+    build: ./services/event-service
+    container_name: dating-event
+    ports:
+      - "8086:8086"
+    depends_on: [postgres, kafka, eureka-server]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/dating_events
+      SPRING_DATASOURCE_USERNAME: dating_user
+      SPRING_DATASOURCE_PASSWORD: dating_pass
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - dating-network
+
+  location-service:
+    build: ./services/location-service
+    container_name: dating-location
+    ports:
+      - "8087:8087"
+    depends_on: [postgres, kafka, eureka-server]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/dating_location
+      SPRING_DATASOURCE_USERNAME: dating_user
+      SPRING_DATASOURCE_PASSWORD: dating_pass
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - dating-network
+
+  mood-service:
+    build: ./services/mood-service
+    container_name: dating-mood
+    ports:
+      - "8088:8088"
+    depends_on: [postgres, kafka, eureka-server]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/dating_mood
+      SPRING_DATASOURCE_USERNAME: dating_user
+      SPRING_DATASOURCE_PASSWORD: dating_pass
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - dating-network
+
+  radar-service:
+    build: ./services/radar-service
+    container_name: dating-radar
+    ports:
+      - "8089:8089"
+    depends_on: [postgres, kafka, eureka-server]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/dating_radar
+      SPRING_DATASOURCE_USERNAME: dating_user
+      SPRING_DATASOURCE_PASSWORD: dating_pass
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - dating-network
+
+  notification-service:
+    build: ./services/notification-service
+    container_name: dating-notification
+    ports:
+      - "8090:8090"
+    depends_on: [postgres, kafka, eureka-server]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/dating_notifications
+      SPRING_DATASOURCE_USERNAME: dating_user
+      SPRING_DATASOURCE_PASSWORD: dating_pass
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      FIREBASE_SERVICE_ACCOUNT_PATH: /app/firebase-service-account.json
+    volumes:
+      - ./firebase-service-account.json:/app/firebase-service-account.json
+    networks:
+      - dating-network
+
+  subscription-service:
+    build: ./services/subscription-service
+    container_name: dating-subscription
+    ports:
+      - "8091:8091"
+    depends_on: [postgres, kafka, eureka-server]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/dating_subscriptions
+      SPRING_DATASOURCE_USERNAME: dating_user
+      SPRING_DATASOURCE_PASSWORD: dating_pass
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - dating-network
+
+volumes:
+  postgres_data:
+  mongo_data:
+
+networks:
+  dating-network:
+    driver: bridge

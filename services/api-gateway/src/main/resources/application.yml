@@ -1,0 +1,104 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: auth-service
+          uri: lb://auth-service
+          predicates:
+            - Path=/api/auth/**
+          filters:
+            - StripPrefix=0
+
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/api/users/**
+          filters:
+            - AuthFilter
+
+        - id: swipe-service
+          uri: lb://swipe-service
+          predicates:
+            - Path=/api/swipes/**
+          filters:
+            - AuthFilter
+
+        - id: match-service
+          uri: lb://match-service
+          predicates:
+            - Path=/api/matches/**
+          filters:
+            - AuthFilter
+
+        - id: chat-service
+          uri: lb://chat-service
+          predicates:
+            - Path=/api/chats/**,/ws/**
+          filters:
+            - AuthFilter
+
+        - id: event-service
+          uri: lb://event-service
+          predicates:
+            - Path=/api/events/**
+          filters:
+            - AuthFilter
+
+        - id: location-service
+          uri: lb://location-service
+          predicates:
+            - Path=/api/locations/**
+          filters:
+            - AuthFilter
+
+        - id: mood-service
+          uri: lb://mood-service
+          predicates:
+            - Path=/api/moods/**
+          filters:
+            - AuthFilter
+
+        - id: radar-service
+          uri: lb://radar-service
+          predicates:
+            - Path=/api/radar/**
+          filters:
+            - AuthFilter
+
+        - id: notification-service
+          uri: lb://notification-service
+          predicates:
+            - Path=/api/notifications/**
+          filters:
+            - AuthFilter
+
+        - id: subscription-service
+          uri: lb://subscription-service
+          predicates:
+            - Path=/api/subscriptions/**
+          filters:
+            - AuthFilter
+
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods: "*"
+            allowedHeaders: "*"
+
+app:
+  jwt:
+    secret: datingAppSecretKey2024VeryLongSecretKeyForHS256Algorithm
+    expiration: 86400000
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true

@@ -1,0 +1,61 @@
+server:
+  port: ${PORT:8082}
+
+spring:
+  application:
+    name: user-service
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASS}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 3
+      minimum-idle: 1
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+#  kafka:
+#    bootstrap-servers: localhost:9092
+#    consumer:
+#      group-id: user-service
+#      auto-offset-reset: earliest
+#      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+#      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+#      properties:
+#        spring.json.trusted.packages: "*"
+#    producer:
+#      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+#      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+  data:
+    redis:
+      url: ${REDIS_URL}
+
+#eureka:
+# client:
+#    service-url:
+#      defaultZone: http://localhost:8761/eureka/
+#  instance:
+#    prefer-ip-address: true
+
+aws:
+  access-key: bfe33676d8da22f3339a583595a907462b9cadb0
+  secret-key: 5VOas9qNQuUrl+MpwqbzCwX751D5EwFRHMwbICP0O1w=
+  s3:
+    bucket: auralink-photos
+    region: ap-mumbai-1
+    endpoint: https://bmp6rve4oojv.compat.objectstorage.ap-mumbai-1.oraclecloud.com
+
+logging:
+  level:
+    com.rahul: DEBUG
+    org.springframework.web: DEBUG

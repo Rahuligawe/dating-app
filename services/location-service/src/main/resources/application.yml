@@ -1,0 +1,37 @@
+server:
+  port: 8087
+
+spring:
+  application:
+    name: location-service
+  datasource:
+    url: jdbc:postgresql://db.possrnoowinerucxubpg.supabase.co:5432/postgres
+    username: postgres
+    password: Princeofheart@2026
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 3
+      minimum-idle: 1
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+
+# How often the nearby check job runs (ms) — 10 minutes
+location:
+  nearby-check-interval-ms: 600000
