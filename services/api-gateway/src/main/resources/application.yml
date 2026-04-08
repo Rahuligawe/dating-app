@@ -15,7 +15,7 @@ spring:
             - StripPrefix=0
 
         - id: user-service
-          uri: lb://user-service
+          uri: https://creative-art-production.up.railway.app
           predicates:
             - Path=/api/users/**
           filters:

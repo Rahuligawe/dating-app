@@ -9,7 +9,7 @@ spring:
       uri: mongodb+srv://rigawe91_db_user:zRT6ULQlJ8wjELAp@cluster0.okw0lri.mongodb.net/dating_chat?appName=Cluster0
       auto-index-creation: true
     redis:
-      url: redis://default:gQAAAAAAAXDTAAIncDE3YWRhYzNkYjU2ZDM0OWQyYTFiMTQzYTQ2MzJkNzY3ZHAxOTQ0MTk@kind-yeti-94419.upstash.io:6379
+      url: rediss://default:gQAAAAAAAXDTAAIncDE3YWRhYzNkYjU2ZDM0OWQyYTFiMTQzYTQ2MzJkNzY3ZHAxOTQ0MTk@kind-yeti-94419.upstash.io:6379
 
   kafka:
     bootstrap-servers: localhost:9092
