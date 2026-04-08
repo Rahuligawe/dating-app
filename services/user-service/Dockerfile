@@ -1,8 +1,18 @@
+FROM eclipse-temurin:21-jdk-jammy AS build
+
+WORKDIR /app
+
+COPY pom.xml .
+COPY src ./src
+
+RUN apt-get update && apt-get install -y maven && \
+    mvn clean package -DskipTests
+
 FROM eclipse-temurin:21-jre-jammy
 
 WORKDIR /app
 
-COPY target/user-service-3.3.2.jar app.jar
+COPY --from=build /app/target/user-service-*.jar app.jar
 
 EXPOSE 8082
 
