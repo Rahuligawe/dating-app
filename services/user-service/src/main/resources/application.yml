@@ -41,7 +41,14 @@ spring:
   data:
     redis:
       url: ${REDIS_URL}
+  cloud:
+    discovery:
+          enabled: false
 
+
+eureka:
+  client:
+    enabled: false
 #eureka:
 # client:
 #    service-url:
