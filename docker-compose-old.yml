@@ -4,9 +4,7 @@ services:
 
   # ─── Service Discovery ───────────────────────────────────
   eureka-server:
-    build:
-      context: .
-      dockerfile: services/eureka-server/Dockerfile
+    build: ./services/eureka-server
     container_name: dating-eureka
     ports:
       - "8761:8761"
@@ -16,9 +14,7 @@ services:
 
   # ─── Microservices ───────────────────────────────────────
   api-gateway:
-    build:
-      context: .
-      dockerfile: services/api-gateway/Dockerfile
+    build: ./services/api-gateway
     container_name: dating-gateway
     ports:
       - "8080:8080"
@@ -31,9 +27,7 @@ services:
     restart: unless-stopped
 
   auth-service:
-    build:
-      context: .
-      dockerfile: services/auth-service/Dockerfile
+    build: ./services/auth-service
     container_name: dating-auth
     ports:
       - "8081:8081"
@@ -51,9 +45,7 @@ services:
     restart: unless-stopped
 
   user-service:
-    build:
-      context: .
-      dockerfile: services/user-service/Dockerfile
+    build: ./services/user-service
     container_name: dating-user
     ports:
       - "8082:8082"
@@ -72,9 +64,7 @@ services:
     restart: unless-stopped
 
   swipe-service:
-    build:
-      context: .
-      dockerfile: services/swipe-service/Dockerfile
+    build: ./services/swipe-service
     container_name: dating-swipe
     ports:
       - "8083:8083"
@@ -90,9 +80,7 @@ services:
     restart: unless-stopped
 
   match-service:
-    build:
-      context: .
-      dockerfile: services/match-service/Dockerfile
+    build: ./services/match-service
     container_name: dating-match
     ports:
       - "8084:8084"
@@ -112,9 +100,7 @@ services:
     restart: unless-stopped
 
   chat-service:
-    build:
-      context: .
-      dockerfile: services/chat-service/Dockerfile
+    build: ./services/chat-service
     container_name: dating-chat
     ports:
       - "8085:8085"
@@ -128,9 +114,7 @@ services:
     restart: unless-stopped
 
   event-service:
-    build:
-      context: .
-      dockerfile: services/event-service/Dockerfile
+    build: ./services/event-service
     container_name: dating-event
     ports:
       - "8086:8086"
@@ -146,9 +130,7 @@ services:
     restart: unless-stopped
 
   location-service:
-    build:
-      context: .
-      dockerfile: services/location-service/Dockerfile
+    build: ./services/location-service
     container_name: dating-location
     ports:
       - "8087:8087"
@@ -164,9 +146,7 @@ services:
     restart: unless-stopped
 
   mood-service:
-    build:
-      context: .
-      dockerfile: services/mood-service/Dockerfile
+    build: ./services/mood-service
     container_name: dating-mood
     ports:
       - "8088:8088"
@@ -182,9 +162,7 @@ services:
     restart: unless-stopped
 
   radar-service:
-    build:
-      context: .
-      dockerfile: services/radar-service/Dockerfile
+    build: ./services/radar-service
     container_name: dating-radar
     ports:
       - "8089:8089"
@@ -200,9 +178,7 @@ services:
     restart: unless-stopped
 
   notification-service:
-    build:
-      context: .
-      dockerfile: services/notification-service/Dockerfile
+    build: ./services/notification-service
     container_name: dating-notification
     ports:
       - "8092:8092"
@@ -219,9 +195,7 @@ services:
     restart: unless-stopped
 
   subscription-service:
-    build:
-      context: .
-      dockerfile: services/subscription-service/Dockerfile
+    build: ./services/subscription-service
     container_name: dating-subscription
     ports:
       - "8091:8091"

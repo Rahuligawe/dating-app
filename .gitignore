@@ -35,3 +35,6 @@ build/
 # Firebase secrets — NEVER commit these
 **/firebase-service-account.json
 **/google-services.json
+
+# Environment variables — NEVER commit
+.env
