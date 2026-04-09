@@ -1,13 +1,18 @@
 server:
-  port: 8086
+  port: ${PORT:8086}
 
 spring:
   application:
     name: event-service
   datasource:
-    url: jdbc:postgresql://db.possrnoowinerucxubpg.supabase.co:5432/postgres
-    username: postgres
-    password: Princeofheart@2026
+    # ── Old Supabase config (backup) ───────────────────────────────────────────
+    #url: jdbc:postgresql://db.possrnoowinerucxubpg.supabase.co:5432/postgres
+    #username: postgres
+    #password: Princeofheart@2026
+    # ── Railway PostgreSQL (active) ────────────────────────────────────────────
+    url: jdbc:${DATABASE_URL}
+    username: ${DB_USER}
+    password: ${DB_PASS}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 3
@@ -19,15 +24,20 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-  kafka:
-    bootstrap-servers: localhost:9092
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+  # ── Kafka (disabled — replaced by Redis Streams) ────────────────────────────
+  #kafka:
+  #  bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  #  properties:
+  #    security.protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+  #    sasl.mechanism: ${KAFKA_SASL_MECHANISM:PLAIN}
+  #    sasl.jaas.config: ${KAFKA_SASL_CONFIG:}
+  #  producer:
+  #    key-serializer: org.apache.kafka.common.serialization.StringSerializer
+  #    value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+  data:
+    redis:
+      url: ${REDIS_URL}
 
 eureka:
   client:
-    service-url:
-      defaultZone: http://localhost:8761/eureka/
-  instance:
-    prefer-ip-address: true
+    enabled: false

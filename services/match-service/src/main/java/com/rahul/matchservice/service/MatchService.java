@@ -5,11 +5,9 @@ import com.rahul.matchservice.dto.MatchWithProfileResponse;
 import com.rahul.matchservice.dto.MatchWithProfileResponse.OtherUserDto;
 import com.rahul.matchservice.entity.Match;
 import com.rahul.matchservice.repository.MatchRepository;
-import lombok.RequiredArgsConstructor;
+import com.rahul.matchservice.stream.StreamPublisher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -23,27 +21,25 @@ import java.util.Map;
 public class MatchService {
 
     private final MatchRepository matchRepository;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final StreamPublisher streamPublisher;
     private final WebClient userServiceClient;
     private final WebClient chatServiceClient;
 
-    // Constructor injection (cannot use @RequiredArgsConstructor with @Qualifier)
     public MatchService(
             MatchRepository matchRepository,
-            KafkaTemplate<String, Object> kafkaTemplate,
+            StreamPublisher streamPublisher,
             @Qualifier("userServiceClient") WebClient userServiceClient,
             @Qualifier("chatServiceClient") WebClient chatServiceClient) {
-        this.matchRepository    = matchRepository;
-        this.kafkaTemplate      = kafkaTemplate;
-        this.userServiceClient  = userServiceClient;
-        this.chatServiceClient  = chatServiceClient;
+        this.matchRepository   = matchRepository;
+        this.streamPublisher   = streamPublisher;
+        this.userServiceClient = userServiceClient;
+        this.chatServiceClient = chatServiceClient;
     }
 
-    // ─── Kafka: Create Match ──────────────────────────────────────────────────
+    // ─── Called by StreamConsumerConfig when match.create arrives ────────────
 
-    @KafkaListener(topics = "match.create", groupId = "match-service")
     @Transactional
-    public void handleMatchCreate(Map<String, String> event) {
+    public void processMatchCreate(Map<String, String> event) {
         String user1Id = event.get("user1Id");
         String user2Id = event.get("user2Id");
 
@@ -61,19 +57,19 @@ public class MatchService {
         log.info("✅ Match created: {} <-> {} | matchId: {}", user1Id, user2Id, match.getId());
 
         // Notify both users
-        kafkaTemplate.send("notification.send", user1Id, Map.of(
+        streamPublisher.publish("notification.send", Map.of(
                 "userId", user1Id, "type", "NEW_MATCH",
                 "title", "It's a Match! 💘", "body", "You have a new match!",
                 "data", Map.of("matchId", match.getId(), "matchedUserId", user2Id)
         ));
-        kafkaTemplate.send("notification.send", user2Id, Map.of(
+        streamPublisher.publish("notification.send", Map.of(
                 "userId", user2Id, "type", "NEW_MATCH",
                 "title", "It's a Match! 💘", "body", "You have a new match!",
                 "data", Map.of("matchId", match.getId(), "matchedUserId", user1Id)
         ));
 
         // Tell chat-service to create a conversation
-        kafkaTemplate.send("chat.create.conversation", match.getId(), Map.of(
+        streamPublisher.publish("chat.create.conversation", Map.of(
                 "matchId", match.getId(),
                 "user1Id", user1Id,
                 "user2Id", user2Id
@@ -106,8 +102,6 @@ public class MatchService {
     }
 
     // ─── REST: Matches WITH other user profile + last message ─────────────────
-    // Called by GET /api/matches/with-profiles
-    // Used by Android Chats screen (grid view)
 
     public List<MatchWithProfileResponse> getMatchesWithProfiles(String userId) {
         List<Match> matches = matchRepository.findByUser1IdOrUser2Id(userId, userId);
@@ -120,19 +114,14 @@ public class MatchService {
                     ? match.getUser2Id()
                     : match.getUser1Id();
 
-            // 1. Fetch other user's profile from user-service
             OtherUserDto otherUser = fetchUserProfile(otherUserId);
-
-            // ✅ Profile fetch fail hua (user-service down / profile incomplete)
-            // Is match ko skip karo — Android cache se purana valid data dikhayega
             if (otherUser == null) continue;
 
-            // 2. Fetch conversation summary (lastMessage, unreadCount) from chat-service
             ConversationSummaryDto conv = fetchConversation(match.getId(), userId);
 
             result.add(MatchWithProfileResponse.builder()
                     .matchId(match.getId())
-                    .conversationId(match.getId())   // chat-service uses matchId as conversationId
+                    .conversationId(match.getId())
                     .matchedAt(match.getMatchedAt() != null ? match.getMatchedAt().toString() : null)
                     .otherUser(otherUser)
                     .lastMessage(conv != null ? conv.getLastMessage() : null)
@@ -141,7 +130,6 @@ public class MatchService {
                     .build());
         }
 
-        // Sort: most recent conversation first
         result.sort((a, b) -> {
             if (a.getLastMessageAt() == null) return 1;
             if (b.getLastMessageAt() == null) return -1;
@@ -151,36 +139,25 @@ public class MatchService {
         return result;
     }
 
-    // ── Internal: call user-service ───────────────────────────────────────────
-
     private OtherUserDto fetchUserProfile(String userId) {
         try {
             OtherUserDto profile = userServiceClient.get()
                     .uri("/api/users/{userId}", userId)
-                    // Internal call — pass userId as header (no JWT needed between services)
                     .header("X-User-Id", userId)
                     .retrieve()
                     .bodyToMono(OtherUserDto.class)
                     .block();
 
-            // ✅ Profile valid hai tabhi return karo — naam hona zaroori hai
-            if (profile != null
-                    && profile.getName() != null
-                    && !profile.getName().isBlank()) {
+            if (profile != null && profile.getName() != null && !profile.getName().isBlank()) {
                 return profile;
             }
-            // Profile mein naam nahi — null return karo, match skip hoga
             log.warn("Profile incomplete for user {}, skipping match", userId);
             return null;
         } catch (Exception e) {
-            // user-service down — null return karo
-            // Android cache se dikhayega jo pehle save tha
             log.warn("Could not fetch profile for user {}: {}", userId, e.getMessage());
             return null;
         }
     }
-
-    // ── Internal: call chat-service ───────────────────────────────────────────
 
     private ConversationSummaryDto fetchConversation(String conversationId, String requestingUserId) {
         try {
@@ -192,10 +169,9 @@ public class MatchService {
                     .block();
         } catch (Exception e) {
             log.warn("Could not fetch conversation {}: {}", conversationId, e.getMessage());
-            return null; // Silent — match will show without last message
+            return null;
         }
     }
-
 
     public long getMatchCount(String userId) {
         return matchRepository.countByUser1IdOrUser2Id(userId, userId);

@@ -1,13 +1,18 @@
 server:
-  port: 8091
+  port: ${PORT:8091}
 
 spring:
   application:
     name: subscription-service
   datasource:
-    url: jdbc:postgresql://db.possrnoowinerucxubpg.supabase.co:5432/postgres
-    username: postgres
-    password: Princeofheart@2026
+    # ── Old Supabase config (backup) ───────────────────────────────────────────
+    #url: jdbc:postgresql://db.possrnoowinerucxubpg.supabase.co:5432/postgres
+    #username: postgres
+    #password: Princeofheart@2026
+    # ── Railway PostgreSQL (active) ────────────────────────────────────────────
+    url: jdbc:${DATABASE_URL}
+    username: ${DB_USER}
+    password: ${DB_PASS}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 3
@@ -19,29 +24,25 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-  kafka:
-    bootstrap-servers: localhost:9092
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+  # ── Kafka (disabled — replaced by Redis Streams) ────────────────────────────
+  #kafka:
+  #  bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  #  properties:
+  #    security.protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+  #    sasl.mechanism: ${KAFKA_SASL_MECHANISM:PLAIN}
+  #    sasl.jaas.config: ${KAFKA_SASL_CONFIG:}
+  #  producer:
+  #    key-serializer: org.apache.kafka.common.serialization.StringSerializer
+  #    value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
   data:
     redis:
-      url: rediss://default:gQAAAAAAAXDTAAIncDE3YWRhYzNkYjU2ZDM0OWQyYTFiMTQzYTQ2MzJkNzY3ZHAxOTQ0MTk@kind-yeti-94419.upstash.io:6379
+      url: ${REDIS_URL}
 
 eureka:
   client:
-    service-url:
-      defaultZone: http://localhost:8761/eureka/
-  instance:
-    prefer-ip-address: true
+    enabled: false
 
-# ADD to application.yml (at end)
 razorpay:
   key:
-    id: rzp_test_SX9ltNhrJDqiYU       # Razorpay Dashboard se lo (Test key)
-    secret: wgL0ZWIErl0DvzmOZE9ZTt5a    # Razorpay Dashboard se lo
-
-# Razorpay test keys ke liye:
-# 1. razorpay.com pe account banao
-# 2. Dashboard > API Keys > Generate Test Keys
-# 3. ye keys paste karo yahin
+    id: ${RAZORPAY_KEY_ID:rzp_test_SX9ltNhrJDqiYU}
+    secret: ${RAZORPAY_KEY_SECRET:wgL0ZWIErl0DvzmOZE9ZTt5a}

@@ -38,7 +38,23 @@ public class UserService {
     public UserProfileResponse getProfile(String userId) {
         return userProfileRepository.findById(userId)
                 .map(this::toResponse)
-                .orElse(UserProfileResponse.builder().id(userId).build());
+                .orElseGet(() -> toResponse(createEmptyProfile(userId)));
+    }
+
+    @Transactional
+    public UserProfile createEmptyProfile(String userId) {
+        // Idempotent — already exists to return existing, nahi to create karo
+        return userProfileRepository.findById(userId).orElseGet(() ->
+                userProfileRepository.save(
+                        UserProfile.builder()
+                                .id(userId)
+                                .isActive(true)
+                                .isProfileComplete(false)
+                                .isVerified(false)
+                                .subscriptionType(UserProfile.SubscriptionType.FREE)
+                                .build()
+                )
+        );
     }
 
     // ─── Online Status — Event Based ──────────────────────────────────────────

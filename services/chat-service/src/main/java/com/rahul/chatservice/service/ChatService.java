@@ -1,6 +1,7 @@
 package com.rahul.chatservice.service;
 
 import com.rahul.chatservice.redis.RedisPublisher;
+import com.rahul.chatservice.stream.StreamPublisher;
 import com.rahul.chatservice.dto.ConversationSummaryResponse;
 import com.rahul.chatservice.entity.Conversation;
 import com.rahul.chatservice.entity.Message;
@@ -10,7 +11,6 @@ import com.rahul.chatservice.repository.MessageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
@@ -27,7 +27,7 @@ public class ChatService {
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
     private final SimpMessagingTemplate messagingTemplate;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final StreamPublisher streamPublisher;
     private final RedisPublisher redisPublisher;
 
     // ─── Create Conversation ──────────────────────────────────
@@ -85,18 +85,13 @@ public class ChatService {
         } catch (Exception redisEx) {
             log.warn("Redis publish failed (non-fatal): {}", redisEx.getMessage());
         }
-        try {
-
-            Map<String, Object> payload = new HashMap<>();
-            payload.put("userId", receiverId);
-            payload.put("type", "NEW_MESSAGE");
-            payload.put("title", "New Message 💬");
-            payload.put("body", text != null ? text : "Sent you a message");
-            payload.put("data", Map.of("conversationId", conversationId, "senderId", senderId));
-            kafkaTemplate.send("notification.send", receiverId, payload);
-        } catch (Exception e) {
-            log.warn(" Kafka Failed to send message to user: {}", receiverId, e);
-        }
+        Map<String, Object> notifPayload = new HashMap<>();
+        notifPayload.put("userId", receiverId);
+        notifPayload.put("type", "NEW_MESSAGE");
+        notifPayload.put("title", "New Message 💬");
+        notifPayload.put("body", text != null ? text : "Sent you a message");
+        notifPayload.put("data", Map.of("conversationId", conversationId, "senderId", senderId));
+        streamPublisher.publish("notification.send", notifPayload);
         return message;
     }
 

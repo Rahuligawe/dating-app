@@ -6,7 +6,7 @@ import com.rahul.locationservice.repository.NearbySettingsRepository;
 import com.rahul.locationservice.repository.UserLocationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.core.KafkaTemplate;
+import com.rahul.locationservice.stream.StreamPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,7 +22,7 @@ public class LocationService {
 
     private final UserLocationRepository     locationRepository;
     private final NearbySettingsRepository   nearbySettingsRepository;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final StreamPublisher streamPublisher;
 
     @Transactional
     public void updateLocation(String userId, double lat, double lng) {
@@ -90,7 +90,7 @@ public class LocationService {
                         other.getLatitude(), other.getLongitude());
 
                 if (dist <= alertDistanceKm) {
-                    kafkaTemplate.send("location.nearby", userId, Map.of(
+                    streamPublisher.publish("location.nearby", Map.of(
                             "userId", userId,
                             "nearbyUserId", other.getUserId(),
                             "distanceKm", Math.round(dist * 10.0) / 10.0

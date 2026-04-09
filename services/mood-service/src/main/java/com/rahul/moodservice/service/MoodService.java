@@ -6,11 +6,11 @@ import com.rahul.moodservice.entity.*;
 import com.rahul.moodservice.entity.MoodJoinRequest.JoinStatus;
 import com.rahul.moodservice.repository.*;
 import com.rahul.moodservice.entity.MoodDislike;
+import com.rahul.moodservice.stream.StreamPublisher;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,7 +30,7 @@ public class MoodService {
     private final MoodDislikeRepository     moodDislikeRepository;
     private final MoodCommentRepository     moodCommentRepository;
     private final MoodJoinRequestRepository moodJoinRequestRepository;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final StreamPublisher streamPublisher;
     @PersistenceContext
     private EntityManager entityManager;
 
@@ -58,22 +58,16 @@ public class MoodService {
                 .isActive(true)
                 .build());
 
-        // Notify nearby users + matches via Kafka (non-fatal)
-        try {
-            kafkaTemplate.send("mood.posted", userId, Map.of(
-                    "moodId",          mood.getId(),
-                    "userId",          userId,
-                    "moodType",        mood.getMoodType().name(),
-                    "description",     mood.getDescription() != null
-                            ? mood.getDescription() : "",
-                    "latitude",        mood.getLatitude(),
-                    "longitude",       mood.getLongitude(),
-                    "distanceRangeKm", mood.getDistanceRangeKm(),
-                    "expiryTime",      mood.getExpiryTime().toString()
-            ));
-        } catch (Exception kafkaEx) {
-            log.warn("Kafka mood.posted send failed (non-fatal): {}", kafkaEx.getMessage());
-        }
+        streamPublisher.publish("mood.posted", Map.of(
+                "moodId",          mood.getId(),
+                "userId",          userId,
+                "moodType",        mood.getMoodType().name(),
+                "description",     mood.getDescription() != null ? mood.getDescription() : "",
+                "latitude",        mood.getLatitude(),
+                "longitude",       mood.getLongitude(),
+                "distanceRangeKm", mood.getDistanceRangeKm(),
+                "expiryTime",      mood.getExpiryTime().toString()
+        ));
 
         log.info("Mood posted by user: {} | type: {} | expires: {}",
                 userId, mood.getMoodType(), mood.getExpiryTime());
@@ -152,11 +146,7 @@ public class MoodService {
             // Not liked → add like (dislike is independent, leave it alone)
             moodLikeRepository.save(MoodLike.builder().moodId(moodId).userId(userId).build());
             moodRepository.incrementLikes(moodId);
-            try {
-                kafkaTemplate.send("mood.liked", moodId, Map.of("moodId", moodId, "userId", userId));
-            } catch (Exception kafkaEx) {
-                log.warn("Kafka mood.liked send failed (non-fatal): {}", kafkaEx.getMessage());
-            }
+            // mood.liked has no consumer — skip publishing
             liked = true;
         }
 
@@ -171,21 +161,17 @@ public class MoodService {
 
         // Notify mood owner via FCM (non-fatal if Kafka unavailable)
         if (mood != null && !mood.getUserId().equals(userId) && liked) {
-            try {
-                Map<String, Object> notif = new HashMap<>();
-                notif.put("userId", mood.getUserId());
-                notif.put("type",   "MOOD_LIKE");
-                notif.put("title",  "❤️ Someone liked your mood!");
-                notif.put("body",   "Someone is interested in joining you!");
-                Map<String, String> data = new HashMap<>();
-                data.put("moodId",       moodId);
-                data.put("likeCount",    String.valueOf(mood.getLikeCount()));
-                data.put("dislikeCount", String.valueOf(mood.getDislikeCount()));
-                notif.put("data", data);
-                kafkaTemplate.send("notification.send", mood.getUserId(), notif);
-            } catch (Exception kafkaEx) {
-                log.warn("Kafka notification.send (like) failed (non-fatal): {}", kafkaEx.getMessage());
-            }
+            Map<String, Object> notif = new HashMap<>();
+            notif.put("userId", mood.getUserId());
+            notif.put("type",   "MOOD_LIKE");
+            notif.put("title",  "❤️ Someone liked your mood!");
+            notif.put("body",   "Someone is interested in joining you!");
+            Map<String, String> data = new HashMap<>();
+            data.put("moodId",       moodId);
+            data.put("likeCount",    String.valueOf(mood.getLikeCount()));
+            data.put("dislikeCount", String.valueOf(mood.getDislikeCount()));
+            notif.put("data", data);
+            streamPublisher.publish("notification.send", notif);
         }
 
         Map<String, Object> result = new HashMap<>();
@@ -221,21 +207,17 @@ public class MoodService {
 
         // Notify mood owner via FCM (non-fatal if Kafka unavailable)
         if (mood != null && !mood.getUserId().equals(userId) && disliked) {
-            try {
-                Map<String, Object> notif = new HashMap<>();
-                notif.put("userId", mood.getUserId());
-                notif.put("type",   "MOOD_DISLIKE");
-                notif.put("title",  "👎 Someone reacted to your mood");
-                notif.put("body",   "Someone reacted to your mood post");
-                Map<String, String> data = new HashMap<>();
-                data.put("moodId",       moodId);
-                data.put("likeCount",    String.valueOf(mood.getLikeCount()));
-                data.put("dislikeCount", String.valueOf(mood.getDislikeCount()));
-                notif.put("data", data);
-                kafkaTemplate.send("notification.send", mood.getUserId(), notif);
-            } catch (Exception kafkaEx) {
-                log.warn("Kafka notification.send (dislike) failed (non-fatal): {}", kafkaEx.getMessage());
-            }
+            Map<String, Object> notif = new HashMap<>();
+            notif.put("userId", mood.getUserId());
+            notif.put("type",   "MOOD_DISLIKE");
+            notif.put("title",  "👎 Someone reacted to your mood");
+            notif.put("body",   "Someone reacted to your mood post");
+            Map<String, String> data = new HashMap<>();
+            data.put("moodId",       moodId);
+            data.put("likeCount",    String.valueOf(mood.getLikeCount()));
+            data.put("dislikeCount", String.valueOf(mood.getDislikeCount()));
+            notif.put("data", data);
+            streamPublisher.publish("notification.send", notif);
         }
 
         Map<String, Object> result = new HashMap<>();
@@ -277,19 +259,7 @@ public class MoodService {
         // userName = user.getName();
         // userPhoto = user.getProfilePhotoUrl();
 
-        // 5. Kafka event (REAL-TIME 🔥)
-        try {
-            kafkaTemplate.send("mood.commented", Map.of(
-                    "moodId", moodId,
-                    "userId", userId,
-                    "comment", request.getComment(),
-                    "commentCount", mood != null ? mood.getCommentCount() : 0
-            ));
-        } catch (Exception e) {
-            log.warn("Kafka comment event failed: {}", e.getMessage());
-        }
-
-        // 6. Return response with data
+        // 5. Return response with data
         return new MoodDtos.MoodCommentResponse(
                 saved.getId(),
                 saved.getMoodId(),
@@ -332,18 +302,16 @@ public class MoodService {
                         .build());
 
         // Notify mood owner
-        kafkaTemplate.send("notification.send", mood.getUserId(),
-                Map.of(
-                        "userId", mood.getUserId(),
-                        "type",   "MOOD_JOIN_REQUEST",
-                        "title",  "Someone wants to join! 🙋",
-                        "body",   "Someone wants to join your mood plan",
-                        "data",   Map.of(
-                                "moodId",        moodId,
-                                "fromUserId",    fromUserId,
-                                "joinRequestId", joinRequest.getId().toString())
-                )
-        );
+        streamPublisher.publish("notification.send", Map.of(
+                "userId", mood.getUserId(),
+                "type",   "MOOD_JOIN_REQUEST",
+                "title",  "Someone wants to join! 🙋",
+                "body",   "Someone wants to join your mood plan",
+                "data",   Map.of(
+                        "moodId",        moodId,
+                        "fromUserId",    fromUserId,
+                        "joinRequestId", joinRequest.getId().toString())
+        ));
 
         return Map.of("message", "Join request sent",
                 "requestId", joinRequest.getId());
@@ -372,18 +340,15 @@ public class MoodService {
 
         if (request.getAccept()) {
             // Notify requester they were accepted
-            kafkaTemplate.send("notification.send",
-                    joinReq.getFromUserId(),
-                    Map.of(
-                            "userId", joinReq.getFromUserId(),
-                            "type",   "MOOD_JOIN_ACCEPTED",
-                            "title",  "Join Request Accepted! 🎉",
-                            "body",   "Your request was accepted. Say hi!",
-                            "data",   Map.of(
-                                    "moodId",   moodId,
-                                    "ownerId",  ownerId)
-                    )
-            );
+            streamPublisher.publish("notification.send", Map.of(
+                    "userId", joinReq.getFromUserId(),
+                    "type",   "MOOD_JOIN_ACCEPTED",
+                    "title",  "Join Request Accepted! 🎉",
+                    "body",   "Your request was accepted. Say hi!",
+                    "data",   Map.of(
+                            "moodId",   moodId,
+                            "ownerId",  ownerId)
+            ));
         }
 
         return Map.of("message", request.getAccept()
