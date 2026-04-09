@@ -5,10 +5,10 @@ import com.rahul.subscriptionservice.entity.UserSubscription;
 import com.rahul.subscriptionservice.entity.UserSubscription.Plan;
 import com.rahul.subscriptionservice.repository.SubscriptionPlanRepository;
 import com.rahul.subscriptionservice.repository.SubscriptionRepository;
+import com.rahul.subscriptionservice.stream.StreamPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,8 +24,8 @@ import java.util.concurrent.TimeUnit;
 public class SubscriptionService {
 
     private final SubscriptionRepository     subscriptionRepository;
-    private final SubscriptionPlanRepository planRepository;        // [NEW]
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final SubscriptionPlanRepository planRepository;
+    private final StreamPublisher            streamPublisher;
     private final RedisTemplate<String, Object> redisTemplate;
     private final ReferralService            referralService;
     private final RazorpayService            razorpayService;
@@ -76,13 +76,9 @@ public class SubscriptionService {
         subscriptionRepository.save(sub);
         // Remove Redis premium flag
         redisTemplate.delete("user:premium:" + sub.getUserId());
-        // Notify user-service via Kafka to reset subscriptionType on profile
-        try {
-            kafkaTemplate.send("subscription.updated", sub.getUserId(),
-                    Map.of("userId", sub.getUserId(), "plan", "FREE"));
-        } catch (Exception e) {
-            log.warn("Kafka notify failed for expiry (non-fatal): {}", e.getMessage());
-        }
+        // Notify user-service to reset subscriptionType on profile
+        streamPublisher.publish("subscription.updated",
+                Map.of("userId", sub.getUserId(), "plan", "FREE"));
     }
 
     // ── [UPDATED] getPlanFeatures — DB se, fallback hardcoded ────────────────
@@ -227,9 +223,9 @@ public class SubscriptionService {
             int ttlDays = yearly ? 366 : 32;
             redisTemplate.opsForValue().set("user:premium:" + userId, "true", ttlDays, TimeUnit.DAYS);
         }
-        kafkaTemplate.send("subscription.updated", userId,
+        streamPublisher.publish("subscription.updated",
                 Map.of("userId", userId, "plan", newPlan.name()));
-        kafkaTemplate.send("notification.send", userId, Map.of(
+        streamPublisher.publish("notification.send", Map.of(
                 "userId", userId, "type", "SUBSCRIPTION_UPGRADED",
                 "title",  "Welcome to " + newPlan.name() + "! 🎉",
                 "body",   "Your plan has been upgraded successfully"));

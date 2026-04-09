@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: ${PORT:8080}
 
 spring:
   application:
@@ -8,79 +8,79 @@ spring:
     gateway:
       routes:
         - id: auth-service
-          uri: lb://auth-service
+          uri: ${AUTH_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/auth/**
           filters:
             - StripPrefix=0
 
         - id: user-service
-          uri: https://creative-art-production.up.railway.app
+          uri: ${USER_SERVICE_URL:https://creative-art-production.up.railway.app}
           predicates:
             - Path=/api/users/**
           filters:
             - AuthFilter
 
         - id: swipe-service
-          uri: lb://swipe-service
+          uri: ${SWIPE_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/api/swipes/**
           filters:
             - AuthFilter
 
         - id: match-service
-          uri: lb://match-service
+          uri: ${MATCH_SERVICE_URL:http://localhost:8084}
           predicates:
             - Path=/api/matches/**
           filters:
             - AuthFilter
 
         - id: chat-service
-          uri: lb://chat-service
+          uri: ${CHAT_SERVICE_URL:http://localhost:8085}
           predicates:
             - Path=/api/chats/**,/ws/**
           filters:
             - AuthFilter
 
-        - id: event-service
-          uri: lb://event-service
-          predicates:
-            - Path=/api/events/**
-          filters:
-            - AuthFilter
-
-        - id: location-service
-          uri: lb://location-service
-          predicates:
-            - Path=/api/locations/**
-          filters:
-            - AuthFilter
-
         - id: mood-service
-          uri: lb://mood-service
+          uri: ${MOOD_SERVICE_URL:http://localhost:8088}
           predicates:
             - Path=/api/moods/**
           filters:
             - AuthFilter
 
-        - id: radar-service
-          uri: lb://radar-service
+        - id: subscription-service
+          uri: ${SUBSCRIPTION_SERVICE_URL:http://localhost:8091}
           predicates:
-            - Path=/api/radar/**
+            - Path=/api/subscriptions/**
           filters:
             - AuthFilter
 
         - id: notification-service
-          uri: lb://notification-service
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8092}
           predicates:
             - Path=/api/notifications/**
           filters:
             - AuthFilter
 
-        - id: subscription-service
-          uri: lb://subscription-service
+        - id: location-service
+          uri: ${LOCATION_SERVICE_URL:http://localhost:8087}
           predicates:
-            - Path=/api/subscriptions/**
+            - Path=/api/locations/**
+          filters:
+            - AuthFilter
+
+        - id: event-service
+          uri: ${EVENT_SERVICE_URL:http://localhost:8086}
+          predicates:
+            - Path=/api/events/**
+          filters:
+            - AuthFilter
+
+        - id: radar-service
+          uri: ${RADAR_SERVICE_URL:http://localhost:8089}
+          predicates:
+            - Path=/api/radar/**
           filters:
             - AuthFilter
 
@@ -93,12 +93,9 @@ spring:
 
 app:
   jwt:
-    secret: datingAppSecretKey2024VeryLongSecretKeyForHS256Algorithm
+    secret: ${JWT_SECRET:datingAppSecretKey2024VeryLongSecretKeyForHS256Algorithm}
     expiration: 86400000
 
 eureka:
   client:
-    service-url:
-      defaultZone: http://localhost:8761/eureka/
-  instance:
-    prefer-ip-address: true
+    enabled: false

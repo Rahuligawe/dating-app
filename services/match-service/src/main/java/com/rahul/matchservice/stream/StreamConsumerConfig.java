@@ -1,8 +1,8 @@
-package com.rahul.userservice.listener;
+package com.rahul.matchservice.stream;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.rahul.userservice.service.UserService;
+import com.rahul.matchservice.service.MatchService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,20 +20,21 @@ import java.util.Map;
 @Configuration
 @RequiredArgsConstructor
 @Slf4j
-public class UserEventListener {
+public class StreamConsumerConfig {
 
-    private static final String STREAM   = "stream:subscription.updated";
-    private static final String GROUP    = "user-service";
-    private static final String CONSUMER = "user-service-1";
+    private static final String STREAM     = "stream:match.create";
+    private static final String GROUP      = "match-service";
+    private static final String CONSUMER   = "match-service-1";
 
-    private final StringRedisTemplate    stringRedisTemplate;
-    private final RedisConnectionFactory connectionFactory;
-    private final UserService            userService;
-    private final ObjectMapper           objectMapper;
+    private final StringRedisTemplate       stringRedisTemplate;
+    private final RedisConnectionFactory    connectionFactory;
+    private final MatchService              matchService;
+    private final ObjectMapper              objectMapper;
 
     @PostConstruct
     public void initGroup() {
         try {
+            // Ensure stream key exists
             if (!Boolean.TRUE.equals(stringRedisTemplate.hasKey(STREAM))) {
                 stringRedisTemplate.opsForStream().add(STREAM, Map.of("init", "1"));
             }
@@ -45,7 +46,7 @@ public class UserEventListener {
     }
 
     @Bean(destroyMethod = "stop")
-    public StreamMessageListenerContainer<String, MapRecord<String, String, String>> subscriptionStreamContainer() {
+    public StreamMessageListenerContainer<String, MapRecord<String, String, String>> matchStreamContainer() {
         var options = StreamMessageListenerContainerOptions
                 .<String, MapRecord<String, String, String>>builder()
                 .pollTimeout(Duration.ofMillis(200))
@@ -60,18 +61,14 @@ public class UserEventListener {
                 StreamOffset.create(STREAM, ReadOffset.lastConsumed()),
                 message -> {
                     try {
+                        String payload = message.getValue().get("payload");
                         Map<String, String> event = objectMapper.readValue(
-                                message.getValue().get("payload"), new TypeReference<>() {});
-
-                        String userId = event.get("userId");
-                        String plan   = event.get("plan");
-                        log.info("Subscription updated for user {}: {}", userId, plan);
-                        userService.updateSubscription(userId, plan);
-
+                                payload, new TypeReference<>() {});
+                        matchService.processMatchCreate(event);
                         stringRedisTemplate.opsForStream()
                                 .acknowledge(STREAM, GROUP, message.getId());
                     } catch (Exception e) {
-                        log.error("Failed to process subscription.updated: {}", e.getMessage());
+                        log.error("Failed to process match.create: {}", e.getMessage());
                     }
                 }
         );

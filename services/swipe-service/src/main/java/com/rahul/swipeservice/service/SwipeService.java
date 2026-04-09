@@ -6,10 +6,10 @@ import com.rahul.swipeservice.entity.Swipe;
 import com.rahul.swipeservice.entity.Swipe.SwipeAction;
 import com.rahul.swipeservice.exception.SwipeException;
 import com.rahul.swipeservice.repository.SwipeRepository;
+import com.rahul.swipeservice.stream.StreamPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
 public class SwipeService {
 
     private final SwipeRepository swipeRepository;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final StreamPublisher streamPublisher;
     private final RedisTemplate<String, Object> redisTemplate;
 
     //RestTemplate inject karo — AppConfig mein @Bean banao
@@ -78,12 +78,7 @@ public class SwipeService {
             redisTemplate.expire(countKey, 1, TimeUnit.DAYS);
         }
 
-        // Publish swipe event
-        kafkaTemplate.send("swipe.action", fromUserId, Map.of(
-                "fromUserId", fromUserId,
-                "toUserId",   toUserId,
-                "action",     action.name()
-        ));
+        // swipe.action has no consumer — skip publishing
 
         // Check mutual like → trigger match
         boolean isMatch = false;
@@ -96,7 +91,7 @@ public class SwipeService {
 
             if (theyLikedMe) {
                 isMatch = true;
-                kafkaTemplate.send("match.create", fromUserId, Map.of(
+                streamPublisher.publish("match.create", Map.of(
                         "user1Id", fromUserId,
                         "user2Id", toUserId
                 ));

@@ -29,6 +29,22 @@ public class UserController {
         redisTemplate.opsForValue().set("test", "Rahul");
         return redisTemplate.opsForValue().get("test");
     }
+
+    // ─── Internal: called by auth-service after new user registration ────────
+    // Secured with shared internal secret header (not JWT)
+    @PostMapping("/internal/create")
+    public ResponseEntity<Void> createUserProfile(
+            @RequestHeader(value = "X-Internal-Secret", required = false) String secret,
+            @RequestBody Map<String, String> body) {
+        if (!"auralink-internal-2024".equals(secret)) {
+            return ResponseEntity.status(403).build();
+        }
+        String userId = body.get("userId");
+        if (userId == null || userId.isBlank()) return ResponseEntity.badRequest().build();
+        userService.createEmptyProfile(userId);
+        return ResponseEntity.ok().build();
+    }
+
     // userId comes from JWT via Gateway header
     @GetMapping("/me")
     public ResponseEntity<UserProfileResponse> getMyProfile(@RequestHeader("X-User-Id") String userId) {

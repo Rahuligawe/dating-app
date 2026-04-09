@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Map;
 
-@Service
+// @Service — disabled, replaced by MatchService (Redis Streams)
 @RequiredArgsConstructor
 @Slf4j
 public class MatchServiceOld {

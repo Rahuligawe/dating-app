@@ -6,7 +6,7 @@ import com.rahul.radarservice.entity.RadarMeetRequest.MeetStatus;
 import com.rahul.radarservice.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.core.KafkaTemplate;
+import com.rahul.radarservice.stream.StreamPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,7 +22,7 @@ public class RadarService {
 
     private final RadarRepository           radarRepository;
     private final RadarMeetRequestRepository meetRequestRepository;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final StreamPublisher streamPublisher;
 
     // ─── Go Live ──────────────────────────────────────────────
 
@@ -47,16 +47,7 @@ public class RadarService {
                 .isActive(true)
                 .build());
 
-        // Notify nearby users
-        kafkaTemplate.send("radar.live", userId, Map.of(
-                "radarId",         post.getId(),
-                "userId",          userId,
-                "mood",            post.getMood().name(),
-                "latitude",        post.getLatitude(),
-                "longitude",       post.getLongitude(),
-                "distanceRangeKm", post.getDistanceRangeKm(),
-                "expiryTime",      post.getExpiryTime().toString()
-        ));
+        log.info("Radar live: userId={} mood={} expires={}", userId, post.getMood(), post.getExpiryTime());
 
         log.info("User {} went live on radar | mood: {} | expires: {}",
                 userId, post.getMood(), post.getExpiryTime());
@@ -117,18 +108,16 @@ public class RadarService {
                         .build());
 
         // Notify radar post owner
-        kafkaTemplate.send("notification.send", post.getUserId(),
-                Map.of(
-                        "userId", post.getUserId(),
-                        "type",   "MEET_REQUEST",
-                        "title",  "Someone wants to meet! ⚡",
-                        "body",   "Someone nearby sent you a meet request",
-                        "data",   Map.of(
-                                "radarId",       radarId,
-                                "fromUserId",    fromUserId,
-                                "meetRequestId", meetRequest.getId().toString())
-                )
-        );
+        streamPublisher.publish("notification.send", Map.of(
+                "userId", post.getUserId(),
+                "type",   "MEET_REQUEST",
+                "title",  "Someone wants to meet! ⚡",
+                "body",   "Someone nearby sent you a meet request",
+                "data",   Map.of(
+                        "radarId",       radarId,
+                        "fromUserId",    fromUserId,
+                        "meetRequestId", meetRequest.getId().toString())
+        ));
 
         return Map.of(
                 "message",       "Meet request sent successfully",
@@ -161,18 +150,15 @@ public class RadarService {
         meetRequestRepository.save(meetReq);
 
         if (request.getAccept()) {
-            kafkaTemplate.send("notification.send",
-                    meetReq.getFromUserId(),
-                    Map.of(
-                            "userId", meetReq.getFromUserId(),
-                            "type",   "MEET_ACCEPTED",
-                            "title",  "Meet Request Accepted! 🎉",
-                            "body",   "Your meet request was accepted!",
-                            "data",   Map.of(
-                                    "radarId", meetReq.getRadarId(),
-                                    "userId",  userId)
-                    )
-            );
+            streamPublisher.publish("notification.send", Map.of(
+                    "userId", meetReq.getFromUserId(),
+                    "type",   "MEET_ACCEPTED",
+                    "title",  "Meet Request Accepted! 🎉",
+                    "body",   "Your meet request was accepted!",
+                    "data",   Map.of(
+                            "radarId", meetReq.getRadarId(),
+                            "userId",  userId)
+            ));
         }
 
         return Map.of("message", request.getAccept()

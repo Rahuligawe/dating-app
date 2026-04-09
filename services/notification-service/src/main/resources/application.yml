@@ -1,13 +1,18 @@
 server:
-  port: 8092
+  port: ${PORT:8092}
 
 spring:
   application:
     name: notification-service
   datasource:
-    url: jdbc:postgresql://db.possrnoowinerucxubpg.supabase.co:5432/postgres
-    username: postgres
-    password: Princeofheart@2026
+    # ── Old Supabase config (backup) ───────────────────────────────────────────
+    #url: jdbc:postgresql://db.possrnoowinerucxubpg.supabase.co:5432/postgres
+    #username: postgres
+    #password: Princeofheart@2026
+    # ── Railway PostgreSQL (active) ────────────────────────────────────────────
+    url: jdbc:${DATABASE_URL}
+    username: ${DB_USER}
+    password: ${DB_PASS}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 3
@@ -19,25 +24,30 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-  kafka:
-    bootstrap-servers: localhost:9092
-    consumer:
-      group-id: notification-service
-      auto-offset-reset: earliest
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: "*"
+  # ── Kafka (disabled — replaced by Redis Streams) ────────────────────────────
+  #kafka:
+  #  bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  #  properties:
+  #    security.protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+  #    sasl.mechanism: ${KAFKA_SASL_MECHANISM:PLAIN}
+  #    sasl.jaas.config: ${KAFKA_SASL_CONFIG:}
+  #  consumer:
+  #    group-id: notification-service
+  #    auto-offset-reset: earliest
+  #    key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+  #    value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+  #    properties:
+  #      spring.json.trusted.packages: "*"
+  data:
+    redis:
+      url: ${REDIS_URL}
 
 eureka:
   client:
-    service-url:
-      defaultZone: http://localhost:8761/eureka/
-  instance:
-    prefer-ip-address: true
+    enabled: false
 
 firebase:
   service-account-path: classpath:firebase-service-account.json
 
 swipe-service:
-  url: http://localhost:8083
+  url: ${SWIPE_SERVICE_URL:http://localhost:8083}

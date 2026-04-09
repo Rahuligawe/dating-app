@@ -15,8 +15,10 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
@@ -31,9 +33,13 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final RedisTemplate<String, String> redisTemplate;
     private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final RestTemplate restTemplate = new RestTemplate();
 
     @Value("${app.otp.expiry-minutes}")
     private int otpExpiryMinutes;
+
+    @Value("${app.user-service.url:https://creative-art-production.up.railway.app}")
+    private String userServiceUrl;
 
     // ─── Mobile OTP Flow ───────────────────────────────────────────────
 
@@ -95,7 +101,23 @@ public class AuthService {
                         .build()));
 
         if (isNew) {
-            kafkaTemplate.send("user.created", user.getId(), buildUserCreatedEvent(user));
+            // Async Kafka event (works when all services are in same network)
+            try { kafkaTemplate.send("user.created", user.getId(), buildUserCreatedEvent(user)); }
+            catch (Exception e) { log.warn("Kafka user.created failed (non-fatal): {}", e.getMessage()); }
+
+            // Direct HTTP call — works even when Kafka is unavailable (e.g., Railway deployment)
+            try {
+                org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+                headers.set("X-Internal-Secret", "auralink-internal-2024");
+                headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+                var entity = new org.springframework.http.HttpEntity<>(
+                        Map.of("userId", user.getId()), headers);
+                restTemplate.postForEntity(userServiceUrl + "/api/users/internal/create", entity, Void.class);
+                log.info("User profile created via HTTP for userId: {}", user.getId());
+            } catch (Exception e) {
+                log.warn("User profile HTTP create failed (non-fatal, will auto-create on first login): {}",
+                        e.getMessage());
+            }
         }
 
         return buildAuthResponse(user, isNew);

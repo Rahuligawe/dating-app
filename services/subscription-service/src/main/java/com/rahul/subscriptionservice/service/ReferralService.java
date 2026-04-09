@@ -6,7 +6,7 @@ import com.rahul.subscriptionservice.entity.UserSubscription.Plan;
 import com.rahul.subscriptionservice.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.core.KafkaTemplate;
+import com.rahul.subscriptionservice.stream.StreamPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -24,7 +24,7 @@ public class ReferralService {
     private final ReferralUsageRepository     referralUsageRepo;
     private final PointsWalletRepository      walletRepo;
     private final PointsTransactionRepository txRepo;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final StreamPublisher streamPublisher;
     private final RestTemplate                restTemplate; // [NEW] smart code ke liye
 
     // ── Generate Referral Code for new user ──────────────────────────────────
@@ -172,7 +172,7 @@ public class ReferralService {
                     "Referral bonus — " + buyerUserId + " purchased using your code",
                     code, false);
 
-            kafkaTemplate.send("notification.send", rc.getOwnerUserId(), Map.of(
+            streamPublisher.publish("notification.send", Map.of(
                     "userId", rc.getOwnerUserId(),
                     "type",   "REFERRAL_BONUS",
                     "title",  "You earned ₹" + String.format("%.1f", pointsToAward) + " points! 🎉",
@@ -211,7 +211,7 @@ public class ReferralService {
         creditPoints(toUserId, amount, TransactionType.GIFT_RECEIVED,
                 "Gift from " + fromUserId, fromUserId, true);
 
-        kafkaTemplate.send("notification.send", toUserId, Map.of(
+        streamPublisher.publish("notification.send", Map.of(
                 "userId", toUserId,
                 "type",   "GIFT_RECEIVED",
                 "title",  "You received ₹" + String.format("%.0f", amount) + " points! 🎁",
@@ -281,9 +281,7 @@ public class ReferralService {
         debitPoints(userId, amount, TransactionType.REDEEMED_CASH,
                 "Encashed to UPI: " + upiId, upiId, false);
 
-        kafkaTemplate.send("payout.request", userId, Map.of(
-                "userId", userId, "amount", amount, "upiId", upiId
-        ));
+        log.info("Payout request: userId={} amount={} upiId={}", userId, amount, upiId);
 
         return Map.of("success", true,
                 "message", "₹" + (int)amount + " will be transferred to " + upiId + " within 24 hours",

@@ -1,29 +1,35 @@
 server:
-  port: 8085
+  port: ${PORT:8085}
 
 spring:
   application:
     name: chat-service
   data:
     mongodb:
-      uri: mongodb+srv://rigawe91_db_user:zRT6ULQlJ8wjELAp@cluster0.okw0lri.mongodb.net/dating_chat?appName=Cluster0
+      # ── Old MongoDB URI (backup) ─────────────────────────────────────────────
+      #uri: mongodb+srv://rigawe91_db_user:zRT6ULQlJ8wjELAp@cluster0.okw0lri.mongodb.net/dating_chat?appName=Cluster0
+      # ── Railway / Production (active) ───────────────────────────────────────
+      uri: ${MONGODB_URL}
       auto-index-creation: true
     redis:
-      url: rediss://default:gQAAAAAAAXDTAAIncDE3YWRhYzNkYjU2ZDM0OWQyYTFiMTQzYTQ2MzJkNzY3ZHAxOTQ0MTk@kind-yeti-94419.upstash.io:6379
-
-  kafka:
-    bootstrap-servers: localhost:9092
-    consumer:
-      group-id: chat-service
-      auto-offset-reset: earliest
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: "*"
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-
+      url: ${REDIS_URL}
+  # ── Kafka (disabled — replaced by Redis Streams) ────────────────────────────
+  #kafka:
+  #  bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  #  properties:
+  #    security.protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+  #    sasl.mechanism: ${KAFKA_SASL_MECHANISM:PLAIN}
+  #    sasl.jaas.config: ${KAFKA_SASL_CONFIG:}
+  #  consumer:
+  #    group-id: chat-service
+  #    auto-offset-reset: earliest
+  #    key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+  #    value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+  #    properties:
+  #      spring.json.trusted.packages: "*"
+  #  producer:
+  #    key-serializer: org.apache.kafka.common.serialization.StringSerializer
+  #    value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
   servlet:
     multipart:
       max-file-size: 20MB
@@ -31,7 +37,4 @@ spring:
 
 eureka:
   client:
-    service-url:
-      defaultZone: http://localhost:8761/eureka/
-  instance:
-    prefer-ip-address: true
+    enabled: false

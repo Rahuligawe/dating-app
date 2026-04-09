@@ -5,7 +5,7 @@ import com.rahul.eventservice.entity.*;
 import com.rahul.eventservice.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.core.KafkaTemplate;
+import com.rahul.eventservice.stream.StreamPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,7 +20,7 @@ public class EventService {
     private final EventRepository      eventRepository;
     private final EventLikeRepository  eventLikeRepository;
     private final EventCommentRepository eventCommentRepository;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final StreamPublisher streamPublisher;
 
     // ─── Create Event ─────────────────────────────────────────
 
@@ -40,15 +40,6 @@ public class EventService {
                         ? request.getVisibility()
                         : UserEvent.Visibility.MATCHES)
                 .build());
-
-        // Notify matches about new event
-        kafkaTemplate.send("event.created", userId, Map.of(
-                "eventId",    event.getId(),
-                "userId",     userId,
-                "eventType",  event.getEventType().name(),
-                "title",      event.getTitle(),
-                "visibility", event.getVisibility().name()
-        ));
 
         log.info("Event created: {} by user: {}", event.getId(), userId);
         return event;
@@ -80,11 +71,6 @@ public class EventService {
                 .build());
 
         eventRepository.incrementLikes(eventId);
-
-        kafkaTemplate.send("event.liked", eventId, Map.of(
-                "eventId", eventId,
-                "userId",  userId
-        ));
 
         return Map.of("message", "Liked successfully", "liked", true);
     }
