@@ -49,7 +49,6 @@ public class UserEventListener {
         var options = StreamMessageListenerContainerOptions
                 .<String, MapRecord<String, String, String>>builder()
                 .pollTimeout(Duration.ofMillis(200))
-                .targetType(String.class)
                 .build();
 
         var container = StreamMessageListenerContainer
