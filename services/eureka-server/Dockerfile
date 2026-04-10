@@ -2,12 +2,11 @@ FROM eclipse-temurin:17-jdk-jammy AS build
 
 WORKDIR /app
 
-COPY pom.xml .
-COPY services/eureka-server/pom.xml ./services/eureka-server/pom.xml
-COPY services/eureka-server/src ./services/eureka-server/src
+# 🔥 FULL PROJECT COPY
+COPY . .
 
 RUN apt-get update && apt-get install -y maven && \
-    mvn -pl services/eureka-server -am clean package -DskipTests
+    mvn clean package -DskipTests
 
 FROM eclipse-temurin:17-jre-jammy
 

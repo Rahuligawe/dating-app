@@ -2,14 +2,13 @@ FROM eclipse-temurin:21-jdk-jammy AS build
 
 WORKDIR /app
 
-COPY pom.xml .
-COPY services/user-service/pom.xml ./services/user-service/pom.xml
-COPY services/user-service/src ./services/user-service/src
+# 🔥 FULL PROJECT COPY
+COPY . .
 
 RUN apt-get update && apt-get install -y maven && \
-    mvn -pl services/user-service -am clean package -DskipTests
+    mvn clean package -DskipTests
 
-FROM eclipse-temurin:21-jre-jammy
+FROM eclipse-temurin:17-jre-jammy
 
 WORKDIR /app
 

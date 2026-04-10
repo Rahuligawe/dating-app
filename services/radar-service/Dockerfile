@@ -2,12 +2,11 @@ FROM eclipse-temurin:17-jdk-jammy AS build
 
 WORKDIR /app
 
-COPY pom.xml .
-COPY services/radar-service/pom.xml ./services/radar-service/pom.xml
-COPY services/radar-service/src ./services/radar-service/src
+# 🔥 FULL PROJECT COPY
+COPY . .
 
 RUN apt-get update && apt-get install -y maven && \
-    mvn -pl services/radar-service -am clean package -DskipTests
+    mvn clean package -DskipTests
 
 FROM eclipse-temurin:17-jre-jammy
 

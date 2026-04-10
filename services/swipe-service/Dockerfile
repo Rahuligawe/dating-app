@@ -2,12 +2,11 @@ FROM eclipse-temurin:17-jdk-jammy AS build
 
 WORKDIR /app
 
-COPY pom.xml .
-COPY services/swipe-service/pom.xml ./services/swipe-service/pom.xml
-COPY services/swipe-service/src ./services/swipe-service/src
+# 🔥 FULL PROJECT COPY
+COPY . .
 
 RUN apt-get update && apt-get install -y maven && \
-    mvn -pl services/swipe-service -am clean package -DskipTests
+    mvn clean package -DskipTests
 
 FROM eclipse-temurin:17-jre-jammy
 

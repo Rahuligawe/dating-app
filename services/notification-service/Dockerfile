@@ -2,12 +2,11 @@ FROM eclipse-temurin:17-jdk-jammy AS build
 
 WORKDIR /app
 
-COPY pom.xml .
-COPY services/notification-service/pom.xml ./services/notification-service/pom.xml
-COPY services/notification-service/src ./services/notification-service/src
+# 🔥 FULL PROJECT COPY
+COPY . .
 
 RUN apt-get update && apt-get install -y maven && \
-    mvn -pl services/notification-service -am clean package -DskipTests
+    mvn clean package -DskipTests
 
 FROM eclipse-temurin:17-jre-jammy
 
