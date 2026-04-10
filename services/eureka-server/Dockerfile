@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jdk-jammy AS build
+FROM eclipse-temurin:17-jdk-jammy AS build
 
 WORKDIR /app
 
@@ -12,8 +12,8 @@ FROM eclipse-temurin:17-jre-jammy
 
 WORKDIR /app
 
-COPY --from=build /app/services/user-service/target/user-service-*.jar app.jar
+COPY --from=build /app/services/eureka-server/target/eureka-server-0.0.1-SNAPSHOT.jar app.jar
 
-EXPOSE 8082
+EXPOSE 8761
 
 ENTRYPOINT ["java", "-jar", "app.jar"]

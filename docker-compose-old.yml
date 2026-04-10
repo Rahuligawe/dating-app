@@ -4,50 +4,35 @@ services:
 
   # ─── Service Discovery ───────────────────────────────────
   eureka-server:
-    build:
-      context: .
-      dockerfile: services/eureka-server/Dockerfile
+    build: ./services/eureka-server
     container_name: dating-eureka
     ports:
       - "8761:8761"
-    env_file:
-      - .env
-    environment:
-      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
     restart: unless-stopped
 
   # ─── Microservices ───────────────────────────────────────
   api-gateway:
-    build:
-      context: .
-      dockerfile: services/api-gateway/Dockerfile
+    build: ./services/api-gateway
     container_name: dating-gateway
     ports:
       - "8080:8080"
     depends_on:
       - eureka-server
-    env_file:
-      - .env
     environment:
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
-      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
     restart: unless-stopped
 
   auth-service:
-    build:
-      context: .
-      dockerfile: services/auth-service/Dockerfile
+    build: ./services/auth-service
     container_name: dating-auth
     ports:
       - "8081:8081"
     depends_on:
       - eureka-server
-    env_file:
-      - .env
     environment:
       DATABASE_URL: ${AUTH_DB_URL}
       DB_USER: ${DB_USER}
@@ -55,22 +40,17 @@ services:
       REDIS_URL: ${REDIS_URL}
       USER_SERVICE_URL: http://dating-user:8082
       JWT_SECRET: ${JWT_SECRET}
-      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
     restart: unless-stopped
 
   user-service:
-    build:
-      context: .
-      dockerfile: services/user-service/Dockerfile
+    build: ./services/user-service
     container_name: dating-user
     ports:
       - "8082:8082"
     depends_on:
       - eureka-server
-    env_file:
-      - .env
     environment:
       DATABASE_URL: ${USER_DB_URL}
       DB_USER: ${DB_USER}
@@ -79,36 +59,28 @@ services:
       PORT: 8082
       AWS_ACCESS_KEY: ${AWS_ACCESS_KEY}
       AWS_SECRET_KEY: ${AWS_SECRET_KEY}
-      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
     restart: unless-stopped
 
   swipe-service:
-    build:
-      context: .
-      dockerfile: services/swipe-service/Dockerfile
+    build: ./services/swipe-service
     container_name: dating-swipe
     ports:
       - "8083:8083"
     depends_on:
       - eureka-server
-    env_file:
-      - .env
     environment:
       DATABASE_URL: ${SWIPE_DB_URL}
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       REDIS_URL: ${REDIS_URL}
-      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
     restart: unless-stopped
 
   match-service:
-    build:
-      context: .
-      dockerfile: services/match-service/Dockerfile
+    build: ./services/match-service
     container_name: dating-match
     ports:
       - "8084:8084"
@@ -116,8 +88,6 @@ services:
       - eureka-server
       - user-service
       - chat-service
-    env_file:
-      - .env
     environment:
       DATABASE_URL: ${MATCH_DB_URL}
       DB_USER: ${DB_USER}
@@ -125,147 +95,112 @@ services:
       REDIS_URL: ${REDIS_URL}
       USER_SERVICE_URL: http://dating-user:8082
       CHAT_SERVICE_URL: http://dating-chat:8085
-      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
     restart: unless-stopped
 
   chat-service:
-    build:
-      context: .
-      dockerfile: services/chat-service/Dockerfile
+    build: ./services/chat-service
     container_name: dating-chat
     ports:
       - "8085:8085"
     depends_on:
       - eureka-server
-    env_file:
-      - .env
     environment:
       MONGODB_URL: ${MONGODB_URI}
       REDIS_URL: ${REDIS_URL}
-      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
     restart: unless-stopped
 
   event-service:
-    build:
-      context: .
-      dockerfile: services/event-service/Dockerfile
+    build: ./services/event-service
     container_name: dating-event
     ports:
       - "8086:8086"
     depends_on:
       - eureka-server
-    env_file:
-      - .env
     environment:
       DATABASE_URL: ${EVENT_DB_URL}
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       REDIS_URL: ${REDIS_URL}
-      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
     restart: unless-stopped
 
   location-service:
-    build:
-      context: .
-      dockerfile: services/location-service/Dockerfile
+    build: ./services/location-service
     container_name: dating-location
     ports:
       - "8087:8087"
     depends_on:
       - eureka-server
-    env_file:
-      - .env
     environment:
       DATABASE_URL: ${LOCATION_DB_URL}
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       REDIS_URL: ${REDIS_URL}
-      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
     restart: unless-stopped
 
   mood-service:
-    build:
-      context: .
-      dockerfile: services/mood-service/Dockerfile
+    build: ./services/mood-service
     container_name: dating-mood
     ports:
       - "8088:8088"
     depends_on:
       - eureka-server
-    env_file:
-      - .env
     environment:
       DATABASE_URL: ${MOOD_DB_URL}
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       REDIS_URL: ${REDIS_URL}
-      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
     restart: unless-stopped
 
   radar-service:
-    build:
-      context: .
-      dockerfile: services/radar-service/Dockerfile
+    build: ./services/radar-service
     container_name: dating-radar
     ports:
       - "8089:8089"
     depends_on:
       - eureka-server
-    env_file:
-      - .env
     environment:
       DATABASE_URL: ${RADAR_DB_URL}
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       REDIS_URL: ${REDIS_URL}
-      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
     restart: unless-stopped
 
   notification-service:
-    build:
-      context: .
-      dockerfile: services/notification-service/Dockerfile
+    build: ./services/notification-service
     container_name: dating-notification
     ports:
       - "8092:8092"
     depends_on:
       - eureka-server
-    env_file:
-      - .env
     environment:
       DATABASE_URL: ${NOTIFICATION_DB_URL}
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       REDIS_URL: ${REDIS_URL}
       SWIPE_SERVICE_URL: http://dating-swipe:8083
-      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
     restart: unless-stopped
 
   subscription-service:
-    build:
-      context: .
-      dockerfile: services/subscription-service/Dockerfile
+    build: ./services/subscription-service
     container_name: dating-subscription
     ports:
       - "8091:8091"
     depends_on:
       - eureka-server
-    env_file:
-      - .env
     environment:
       DATABASE_URL: ${SUBSCRIPTION_DB_URL}
       DB_USER: ${DB_USER}
@@ -273,7 +208,6 @@ services:
       REDIS_URL: ${REDIS_URL}
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
-      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
     restart: unless-stopped
