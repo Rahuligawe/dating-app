@@ -41,6 +41,12 @@ spring:
   data:
     redis:
       url: ${REDIS_URL}
+      lettuce:
+        pool:
+          min-idle: 0
+          max-idle: 1
+          max-active: 2
+          time-between-eviction-runs: 300000
   cloud:
     discovery:
           enabled: false
@@ -63,6 +69,11 @@ aws:
     bucket: auralink-photos
     region: ap-mumbai-1
     endpoint: https://bmp6rve4oojv.compat.objectstorage.ap-mumbai-1.oraclecloud.com
+
+management:
+  health:
+    redis:
+      enabled: false
 
 logging:
   level:

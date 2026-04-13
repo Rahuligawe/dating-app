@@ -69,6 +69,18 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+    <!-- ── Shared runtime deps inherited by every child module ──────────── -->
+    <dependencies>
+        <!-- Required for Lettuce connection pool config (min-idle / max-idle) to take effect.
+             Without this JAR, Spring ignores the pool settings and creates unlimited connections,
+             each sending a PING every ~10 s — burning through Upstash free-tier commands fast. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+            <!-- version managed by spring-boot-dependencies BOM -->
+        </dependency>
+    </dependencies>
+
     <build>
         <pluginManagement>
             <plugins>

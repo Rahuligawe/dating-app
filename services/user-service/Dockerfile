@@ -26,6 +26,6 @@ RUN ./mvnw clean package -DskipTests -pl services/user-service
 
 FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
-COPY --from=build /app/services/user-service/target/user-service-0.0.1-SNAPSHOT.jar app.jar
+COPY --from=build /app/services/user-service/target/user-service-*.jar app.jar
 EXPOSE 8082
 ENTRYPOINT ["java", "-jar", "app.jar"]

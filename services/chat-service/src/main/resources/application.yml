@@ -13,6 +13,12 @@ spring:
       auto-index-creation: true
     redis:
       url: ${REDIS_URL}
+      lettuce:
+        pool:
+          min-idle: 0
+          max-idle: 1
+          max-active: 2
+          time-between-eviction-runs: 300000
   # ── Kafka (disabled — replaced by Redis Streams) ────────────────────────────
   #kafka:
   #  bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
@@ -38,3 +44,10 @@ spring:
 eureka:
   client:
     enabled: false
+
+management:
+  health:
+    redis:
+      enabled: false
+    mongo:
+      enabled: false
