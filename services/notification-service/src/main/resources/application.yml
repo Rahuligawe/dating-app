@@ -41,10 +41,21 @@ spring:
   data:
     redis:
       url: ${REDIS_URL}
+      lettuce:
+        pool:
+          min-idle: 0
+          max-idle: 1
+          max-active: 2
+          time-between-eviction-runs: 300000
 
 eureka:
   client:
     enabled: false
+
+management:
+  health:
+    redis:
+      enabled: false
 
 firebase:
   service-account-path: classpath:firebase-service-account.json
