@@ -33,6 +33,17 @@ services:
     environment:
       EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka-server:8761/eureka/
       JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
+      AUTH_SERVICE_URL: http://dating-auth:8081
+      USER_SERVICE_URL: http://dating-user:8082
+      SWIPE_SERVICE_URL: http://dating-swipe:8083
+      MATCH_SERVICE_URL: http://dating-match:8084
+      CHAT_SERVICE_URL: http://dating-chat:8085
+      EVENT_SERVICE_URL: http://dating-event:8086
+      LOCATION_SERVICE_URL: http://dating-location:8087
+      MOOD_SERVICE_URL: http://dating-mood:8088
+      RADAR_SERVICE_URL: http://dating-radar:8089
+      SUBSCRIPTION_SERVICE_URL: http://dating-subscription:8091
+      NOTIFICATION_SERVICE_URL: http://dating-notification:8092
     networks:
       - dating-network
     restart: unless-stopped

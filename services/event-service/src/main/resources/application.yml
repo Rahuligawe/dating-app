@@ -10,7 +10,7 @@ spring:
     #username: postgres
     #password: Princeofheart@2026
     # ── Railway PostgreSQL (active) ────────────────────────────────────────────
-    url: {DATABASE_URL}
+    url: ${DATABASE_URL}
     username: ${DB_USER}
     password: ${DB_PASS}
     driver-class-name: org.postgresql.Driver
