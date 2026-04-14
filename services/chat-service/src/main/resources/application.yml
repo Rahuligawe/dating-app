@@ -15,6 +15,7 @@ spring:
       url: ${REDIS_URL}
       lettuce:
         pool:
+          enabled: true
           min-idle: 0
           max-idle: 1
           max-active: 2

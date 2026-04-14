@@ -11,7 +11,7 @@ spring:
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 3
-      minimum-idle: 1
+      minimum-idle: 0
       connection-timeout: 30000
       connection-test-query: SELECT 1
   jpa:
@@ -21,18 +21,17 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-#  kafka:
-#    bootstrap-servers: localhost:9092
-#    consumer:
-#      group-id: user-service
-#      auto-offset-reset: earliest
-#      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-#      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-#      properties:
-#        spring.json.trusted.packages: "*"
-#    producer:
-#      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-#      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+  kafka:
+    bootstrap-servers: localhost:9092   # Kafka not running — producer fails fast
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        max.block.ms: 500              # fail in 0.5s instead of default 60s
+        request.timeout.ms: 500
+        delivery.timeout.ms: 1000
+#   consumer: (disabled — no Kafka broker running)
+#     group-id: user-service
 
   servlet:
     multipart:
@@ -43,6 +42,7 @@ spring:
       url: ${REDIS_URL}
       lettuce:
         pool:
+          enabled: true
           min-idle: 0
           max-idle: 1
           max-active: 2

@@ -16,7 +16,7 @@ spring:
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 3
-      minimum-idle: 1
+      minimum-idle: 0
   jpa:
     hibernate:
       ddl-auto: update
@@ -46,6 +46,7 @@ spring:
       url: ${REDIS_URL}
       lettuce:
         pool:
+          enabled: true
           min-idle: 0
           max-idle: 1
           max-active: 2

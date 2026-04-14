@@ -17,6 +17,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Random;
@@ -40,6 +42,18 @@ public class AuthService {
 
     @Value("${app.user-service.url:https://creative-art-production.up.railway.app}")
     private String userServiceUrl;
+
+    @Value("${sms.fast2sms.api-key:}")
+    private String fast2smsApiKey;
+
+    @Value("${sms.twofactor.api-key:}")
+    private String twoFactorApiKey;
+
+    @Value("${sms.msg91.auth-key:}")
+    private String msg91AuthKey;
+
+    @Value("${sms.msg91.template-id:}")
+    private String msg91TemplateId;
 
     // ─── Mobile OTP Flow ───────────────────────────────────────────────
 
@@ -70,12 +84,78 @@ public class AuthService {
                 .expiresAt(LocalDateTime.now().plusMinutes(otpExpiryMinutes))
                 .build());
 
-        // Send via SMS (Kafka event → SMS service)
-        kafkaTemplate.send("otp.send", mobile, otp);
-        log.info("OTP sent to mobile: {}", mobile);
+        // Send OTP via SMS — priority: MSG91 → Fast2SMS → 2Factor (Voice)
+        if (msg91AuthKey != null && !msg91AuthKey.isBlank()) {
+            sendSmsViaMsg91(mobile, otp);
+        } else if (fast2smsApiKey != null && !fast2smsApiKey.isBlank()) {
+            sendSmsViaFast2SMS(mobile, otp);
+        } else {
+            sendSmsViaTwoFactor(mobile, otp);
+        }
 
-        // In DEV mode return otp directly, in PROD remove this
-        return "OTP sent successfully. [DEV: " + otp + "]";
+        return "OTP sent successfully";
+    }
+
+    /**
+     * Sends OTP via Fast2SMS Quick route (requires ₹100+ recharge on account).
+     * Dashboard: https://www.fast2sms.com → Dev API → API Key → set FAST2SMS_API_KEY env var.
+     */
+    private void sendSmsViaFast2SMS(String mobile, String otp) {
+        try {
+            String number = mobile.replaceAll("^\\+?91", ""); // Fast2SMS needs 10-digit number
+            String message = "Your AuraLink OTP is " + otp + ". Valid for " + otpExpiryMinutes + " minutes. Do not share. -AuraLink";
+            String url = "https://www.fast2sms.com/dev/bulkV2"
+                    + "?authorization=" + fast2smsApiKey
+                    + "&route=q"
+                    + "&numbers=" + number
+                    + "&message=" + URLEncoder.encode(message, StandardCharsets.UTF_8)
+                    + "&flash=0";
+            var response = restTemplate.getForEntity(url, String.class);
+            log.info("Fast2SMS response for {}: {}", mobile, response.getBody());
+        } catch (Exception e) {
+            log.error("Failed to send Fast2SMS OTP to {}: {}", mobile, e.getMessage());
+        }
+    }
+
+    /**
+     * Sends OTP via MSG91 (primary — reliable DLT-compliant delivery in India).
+     * Sign up: https://msg91.com → free 100 SMS on signup → API → Auth Key.
+     * Also create an OTP template and copy its Template ID.
+     */
+    private void sendSmsViaMsg91(String mobile, String otp) {
+        try {
+            String number = "91" + mobile.replaceAll("^\\+?91", ""); // MSG91 needs 91XXXXXXXXXX
+            String url = "https://control.msg91.com/api/v5/otp"
+                    + "?template_id=" + msg91TemplateId
+                    + "&mobile=" + number
+                    + "&authkey=" + msg91AuthKey
+                    + "&otp=" + otp;
+            var response = restTemplate.getForEntity(url, String.class);
+            log.info("MSG91 SMS response for {}: {}", mobile, response.getBody());
+        } catch (Exception e) {
+            log.error("Failed to send MSG91 SMS OTP to {}: {}", mobile, e.getMessage());
+        }
+    }
+
+    /**
+     * Fallback: Sends OTP via 2Factor.in VOICE call (free tier — no DLT registration needed).
+     * 2Factor calls the user's phone and speaks the OTP aloud.
+     * Sign up free at https://2factor.in → My Account → API Key → set TWO_FACTOR_API_KEY env var.
+     */
+    private void sendSmsViaTwoFactor(String mobile, String otp) {
+        if (twoFactorApiKey == null || twoFactorApiKey.isBlank()) {
+            log.warn("No SMS provider configured — OTP for {}: {}", mobile, otp);
+            return;
+        }
+        try {
+            String number = mobile.replaceAll("^\\+?91", "");
+            // Using VOICE OTP — bypasses DLT/carrier SMS blocking on free accounts
+            String url = "https://2factor.in/API/V1/" + twoFactorApiKey + "/VOICE/" + number + "/" + otp;
+            var response = restTemplate.getForEntity(url, String.class);
+            log.info("2Factor VOICE OTP response for {}: {}", mobile, response.getBody());
+        } catch (Exception e) {
+            log.error("Failed to send 2Factor VOICE OTP to {}: {}", mobile, e.getMessage());
+        }
     }
 
     @Transactional
@@ -138,7 +218,8 @@ public class AuthService {
                 .isVerified(false)
                 .build());
 
-        kafkaTemplate.send("user.created", user.getId(), buildUserCreatedEvent(user));
+        try { kafkaTemplate.send("user.created", user.getId(), buildUserCreatedEvent(user)); }
+        catch (Exception e) { log.warn("Kafka user.created failed (non-fatal): {}", e.getMessage()); }
         return buildAuthResponse(user, true);
     }
 
