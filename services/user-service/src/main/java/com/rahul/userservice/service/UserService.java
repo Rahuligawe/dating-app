@@ -65,11 +65,15 @@ public class UserService {
      * Redis mein key set karo with 5 min TTL (safety net)
      */
     public void markOnline(String userId) {
-        redisTemplate.opsForValue().set(
-                ONLINE_KEY + userId,
-                "1",
-                5, TimeUnit.MINUTES   // safety TTL — agar app crash ho to auto-offline
-        );
+        try {
+            redisTemplate.opsForValue().set(
+                    ONLINE_KEY + userId,
+                    "1",
+                    5, TimeUnit.MINUTES   // safety TTL — agar app crash ho to auto-offline
+            );
+        } catch (Exception e) {
+            log.warn("Redis set failed for markOnline (non-fatal): {}", e.getMessage());
+        }
         publishStatus(userId, true);
         log.debug("User online: {}", userId);
     }
@@ -80,7 +84,11 @@ public class UserService {
      * Redis se key delete karo
      */
     public void markOffline(String userId) {
-        redisTemplate.delete(ONLINE_KEY + userId);
+        try {
+            redisTemplate.delete(ONLINE_KEY + userId);
+        } catch (Exception e) {
+            log.warn("Redis delete failed for markOffline (non-fatal): {}", e.getMessage());
+        }
         publishStatus(userId, false);
         log.debug("User offline: {}", userId);
     }
