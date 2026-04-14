@@ -9,6 +9,7 @@ import com.rahul.swipeservice.repository.SwipeRepository;
 import com.rahul.swipeservice.stream.StreamPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +33,9 @@ public class SwipeService {
 
     //RestTemplate inject karo — AppConfig mein @Bean banao
     private final RestTemplate restTemplate;
+
+    @Value("${app.user-service.url:http://dating-user:8082}")
+    private String userServiceUrl;
 
     //private static final int FREE_DAILY_LIMIT = 50;
 
@@ -255,9 +259,8 @@ public class SwipeService {
     // [Fix] UserProfileDto use karo, getToUserId/getFromUserId se userId pass karo
     private SwipedUserDto enrichWithProfile(String targetUserId, String direction, Swipe swipe) {
         try {
-            // [Fix] /api/users/{id}/profile → user-service ka UserProfile endpoint
-            // Make sure user-service ka SecurityConfig is endpoint ko allow karta hai
-            String url = "http://user-service/api/users/" + targetUserId + "/profile";
+            // Direct HTTP to user-service — Eureka disabled, use container URL
+            String url = userServiceUrl + "/api/users/" + targetUserId + "/profile";
             log.info("[SwipeService] Fetching profile for userId: {}", targetUserId);
 
             UserProfileDto profile = restTemplate.getForObject(url, UserProfileDto.class);

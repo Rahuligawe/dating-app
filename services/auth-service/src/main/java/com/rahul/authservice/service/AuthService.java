@@ -61,14 +61,20 @@ public class AuthService {
     public String sendOtp(MobileLoginRequest request) {
         String mobile = request.getMobile();
 
-        // Rate limiting via Redis
+        // Rate limiting via Redis (non-fatal if Redis is unavailable)
         String rateLimitKey = "otp:rate:" + mobile;
-        Long count = redisTemplate.opsForValue().increment(rateLimitKey);
-        if (count != null && count == 1) {
-            redisTemplate.expire(rateLimitKey, 1, TimeUnit.HOURS);
-        }
-        if (count != null && count > 5) {
-            throw new AuthException("Too many OTP requests. Try after 1 hour.");
+        try {
+            Long count = redisTemplate.opsForValue().increment(rateLimitKey);
+            if (count != null && count == 1) {
+                redisTemplate.expire(rateLimitKey, 1, TimeUnit.HOURS);
+            }
+            if (count != null && count > 5) {
+                throw new AuthException("Too many OTP requests. Try after 1 hour.");
+            }
+        } catch (AuthException e) {
+            throw e; // re-throw rate limit exception as-is
+        } catch (Exception e) {
+            log.warn("Redis rate-limit check failed (non-fatal, skipping): {}", e.getMessage());
         }
 
         // Generate OTP

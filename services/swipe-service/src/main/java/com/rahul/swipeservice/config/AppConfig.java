@@ -1,6 +1,5 @@
 package com.rahul.swipeservice.config;
 
-import org.springframework.cloud.client.loadbalancer.LoadBalanced;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestTemplate;
@@ -8,9 +7,9 @@ import org.springframework.web.client.RestTemplate;
 @Configuration
 public class AppConfig {
 
-    // [Fix] @LoadBalanced = Eureka se "user-service" naam resolve karega
+    // Plain RestTemplate — Docker DNS se dating-user:8082 directly resolve hoga
+    // @LoadBalanced removed — Eureka disabled hai, load balancer fail karta tha
     @Bean
-    @LoadBalanced
     public RestTemplate restTemplate() {
         return new RestTemplate();
     }
