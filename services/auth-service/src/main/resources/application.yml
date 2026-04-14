@@ -16,7 +16,7 @@ spring:
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 3
-      minimum-idle: 1
+      minimum-idle: 0
   jpa:
     hibernate:
       ddl-auto: update
@@ -24,21 +24,22 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-  # ── Kafka (disabled — replaced by Redis Streams) ────────────────────────────
-  #kafka:
-  #  bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-  #  properties:
-  #    security.protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
-  #    sasl.mechanism: ${KAFKA_SASL_MECHANISM:PLAIN}
-  #    sasl.jaas.config: ${KAFKA_SASL_CONFIG:}
-  #  producer:
-  #    key-serializer: org.apache.kafka.common.serialization.StringSerializer
-  #    value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+  # ── Kafka (no broker running — fail fast so requests don't block 60s) ───────
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        max.block.ms: 500              # fail in 0.5s instead of default 60s
+        request.timeout.ms: 500
+        delivery.timeout.ms: 1000
   data:
     redis:
       url: ${REDIS_URL}
       lettuce:
         pool:
+          enabled: true
           min-idle: 0
           max-idle: 1
           max-active: 2
@@ -62,6 +63,16 @@ app:
     expiry-minutes: 10
   user-service:
     url: ${USER_SERVICE_URL:https://creative-art-production.up.railway.app}
+
+# ── SMS config (priority: MSG91 → Fast2SMS → 2Factor Voice) ─────────────────
+sms:
+  fast2sms:
+    api-key: ${FAST2SMS_API_KEY:}
+  msg91:
+    auth-key: ${MSG91_AUTH_KEY:}
+    template-id: ${MSG91_TEMPLATE_ID:}
+  twofactor:
+    api-key: ${TWO_FACTOR_API_KEY:}
 
 logging:
   level:
