@@ -176,4 +176,14 @@ public class MatchService {
     public long getMatchCount(String userId) {
         return matchRepository.countByUser1IdOrUser2Id(userId, userId);
     }
+
+    // Internal — returns all user IDs that are matched with userId
+    public List<String> getMatchUserIds(String userId) {
+        return matchRepository.findByUser1IdOrUser2Id(userId, userId)
+                .stream()
+                .filter(m -> !Boolean.FALSE.equals(m.getIsActive()))
+                .map(m -> m.getUser1Id().equals(userId) ? m.getUser2Id() : m.getUser1Id())
+                .distinct()
+                .collect(java.util.stream.Collectors.toList());
+    }
 }

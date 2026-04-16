@@ -63,3 +63,6 @@ firebase:
 
 swipe-service:
   url: ${SWIPE_SERVICE_URL:http://localhost:8083}
+
+match-service:
+  url: ${MATCH_SERVICE_URL:http://localhost:8084}

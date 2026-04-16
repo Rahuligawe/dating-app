@@ -82,7 +82,10 @@ public class SwipeService {
             redisTemplate.expire(countKey, 1, TimeUnit.DAYS);
         }
 
-        // swipe.action has no consumer — skip publishing
+        // Notify target user about the like
+        if (action == SwipeAction.LIKE || action == SwipeAction.SUPER_LIKE) {
+            sendProfileLikeNotification(fromUserId, toUserId);
+        }
 
         // Check mutual like → trigger match
         boolean isMatch = false;
@@ -318,5 +321,59 @@ public class SwipeService {
         long likes    = swipeRepository.countByToUserIdAndAction(userId, SwipeAction.LIKE);
         long dislikes = swipeRepository.countByToUserIdAndAction(userId, SwipeAction.DISLIKE);
         return Map.of("likes", likes, "dislikes", dislikes);
+    }
+
+    // ── Profile Like Notification ──────────────────────────────────────────────
+
+    private void sendProfileLikeNotification(String fromUserId, String toUserId) {
+        try {
+            // Fetch liker's name from user-service
+            String likerUrl = userServiceUrl + "/api/users/" + fromUserId + "/profile";
+            UserProfileDto likerProfile = restTemplate.getForObject(likerUrl, UserProfileDto.class);
+            String likerName = (likerProfile != null && likerProfile.getName() != null)
+                    ? likerProfile.getName() : "Someone";
+
+            // Check if the liked user is on a paid plan
+            boolean isPaid = isUserPaid(toUserId);
+
+            String title = isPaid ? likerName + " likes you! 💘" : "Someone likes you! 💘";
+            String body  = isPaid
+                    ? "Tap to see their profile"
+                    : "Upgrade to Premium to see who it is! 💎";
+
+            streamPublisher.publish("notification.send", Map.of(
+                    "userId", toUserId,
+                    "type",   "PROFILE_LIKE",
+                    "title",  title,
+                    "body",   body,
+                    "data",   Map.of("fromUserId", fromUserId)
+            ));
+        } catch (Exception e) {
+            log.warn("Could not send profile like notification: {}", e.getMessage());
+        }
+    }
+
+    private boolean isUserPaid(String userId) {
+        try {
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.set("X-User-Id", userId);
+            org.springframework.http.HttpEntity<Void> entity =
+                    new org.springframework.http.HttpEntity<>(headers);
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> sub = restTemplate.exchange(
+                    "http://subscription-service/api/subscriptions/my",
+                    org.springframework.http.HttpMethod.GET,
+                    entity,
+                    java.util.Map.class
+            ).getBody();
+
+            if (sub == null) return false;
+            String plan = (String) sub.get("plan");
+            return plan != null && !plan.equalsIgnoreCase("FREE");
+        } catch (Exception e) {
+            log.warn("Could not fetch subscription for user {}: {}", userId, e.getMessage());
+            return false; // default to free if subscription-service unreachable
+        }
     }
 }

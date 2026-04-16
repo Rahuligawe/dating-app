@@ -66,6 +66,16 @@ public class ChatController {
         return ResponseEntity.ok().build();
     }
 
+    // Angel ki device pe message aaya → immediately call karo (AuraLinkApplication level)
+    // Rahul ko double grey tick milega bina Angel ke chat khole
+    @PostMapping("/{conversationId}/delivered")
+    public ResponseEntity<Void> markAsDelivered(
+            @RequestHeader("X-User-Id") String userId,
+            @PathVariable("conversationId") String conversationId) {
+        chatService.markAsDelivered(conversationId, userId);
+        return ResponseEntity.ok().build();
+    }
+
     @GetMapping("/{conversationId}/unread")
     public ResponseEntity<Map<String, Long>> getUnreadCount(
             @RequestHeader("X-User-Id") String userId,

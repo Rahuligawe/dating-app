@@ -250,22 +250,27 @@ public class MoodService {
         // 3. Get updated mood (for latest count)
         MoodStatus mood = moodRepository.findById(moodId).orElse(null);
 
-        // 4. ⚠️ TEMP FIX (jab tak user service connect nahi hai)
-        String userName = "User";
-        String userPhoto = null;
+        // 4. Notify mood owner via FCM (only if someone else commented)
+        if (mood != null && !mood.getUserId().equals(userId)) {
+            Map<String, Object> notif = new HashMap<>();
+            notif.put("userId", mood.getUserId());
+            notif.put("type",   "MOOD_COMMENT");
+            notif.put("title",  "💬 New comment on your mood!");
+            notif.put("body",   "Someone commented on your mood");
+            Map<String, String> data = new HashMap<>();
+            data.put("moodId",       moodId);
+            data.put("commentCount", String.valueOf(mood.getCommentCount()));
+            notif.put("data", data);
+            streamPublisher.publish("notification.send", notif);
+        }
 
-        // 👉 FUTURE (jab user service ready ho)
-        // UserProfile user = userClient.getUser(userId);
-        // userName = user.getName();
-        // userPhoto = user.getProfilePhotoUrl();
-
-        // 5. Return response with data
+        // 5. Return response — userName/userPhotoUrl enriched client-side by Android
         return new MoodDtos.MoodCommentResponse(
                 saved.getId(),
                 saved.getMoodId(),
                 saved.getUserId(),
-                userName,
-                userPhoto,
+                null,
+                null,
                 saved.getComment(),
                 saved.getCreatedAt().toString()
         );

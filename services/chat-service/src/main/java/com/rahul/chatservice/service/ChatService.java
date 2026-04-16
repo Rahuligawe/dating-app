@@ -78,7 +78,14 @@ public class ChatService {
             conversationRepository.save(conv);
         });
 
+        // Broadcast message to chat topic (both users in conversation)
         messagingTemplate.convertAndSend("/topic/chat/" + conversationId, message);
+
+        // Inbox publish — receiver ki device pe subscribe hai (AuraLinkApplication level)
+        // Jaise hi message aayega, receiver immediately markAsDelivered call karega
+        // Rahul ko bina Angel ke chat khole double grey tick mil jaayega
+        messagingTemplate.convertAndSend("/topic/inbox/" + receiverId,
+                Map.of("conversationId", conversationId, "messageId", message.getId()));
 
         try {
             redisPublisher.publish("chat", message);
@@ -159,6 +166,31 @@ public class ChatService {
                     "/topic/seen/" + conversationId,
                     Map.of("conversationId", conversationId, "seenBy", userId));
         }
+    }
+
+    // ─── Mark as Delivered ────────────────────────────────────
+    // Angel ki device pe message aaya (WS se) → immediately call karo
+    // Rahul ko double grey tick milega bina Angel ke chat khole
+
+    public void markAsDelivered(String conversationId, String receiverId) {
+        List<Message> undelivered = messageRepository
+                .findUndeliveredMessages(conversationId, receiverId);
+
+        if (undelivered.isEmpty()) return;
+
+        undelivered.forEach(m -> {
+            m.setDelivered(true);
+            m.setDeliveredAt(LocalDateTime.now());
+        });
+        messageRepository.saveAll(undelivered);
+
+        messagingTemplate.convertAndSend(
+                "/topic/delivered/" + conversationId,
+                Map.of("conversationId", conversationId,
+                        "deliveredTo", receiverId,
+                        "messageIds", undelivered.stream().map(Message::getId).toList()));
+
+        log.info("Delivered {} messages in conv {} to {}", undelivered.size(), conversationId, receiverId);
     }
 
     // ─── Unread Count ─────────────────────────────────────────

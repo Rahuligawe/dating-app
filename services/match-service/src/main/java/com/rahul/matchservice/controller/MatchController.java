@@ -47,6 +47,13 @@ public class MatchController {
         return ResponseEntity.ok(Map.of("message", "Unmatched successfully"));
     }
 
+    // Internal — notification-service calls this to get all matched user IDs
+    @GetMapping("/internal/match-user-ids/{userId}")
+    public ResponseEntity<List<String>> getMatchUserIds(
+            @PathVariable String userId) {
+        return ResponseEntity.ok(matchService.getMatchUserIds(userId));
+    }
+
     @GetMapping("/health")
     public ResponseEntity<Map<String, String>> health() {
         return ResponseEntity.ok(

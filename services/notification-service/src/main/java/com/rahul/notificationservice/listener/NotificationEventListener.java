@@ -36,6 +36,9 @@ public class NotificationEventListener {
     @Value("${swipe-service.url:http://localhost:8083}")
     private String swipeServiceUrl;
 
+    @Value("${match-service.url:http://localhost:8085}")
+    private String matchServiceUrl;
+
     @PostConstruct
     public void initGroups() {
         initGroup("stream:notification.send");
@@ -150,7 +153,8 @@ public class NotificationEventListener {
                             return;
                         }
 
-                        String url = swipeServiceUrl + "/api/swipes/internal/liked-user-ids/" + userId;
+                        // Notify all MATCHES (mutual likes) — not just one-sided likers
+                        String url = matchServiceUrl + "/api/matches/internal/match-user-ids/" + userId;
                         String[] likedUserIds = restTemplate.getForObject(url, String[].class);
 
                         if (likedUserIds == null || likedUserIds.length == 0) return;
