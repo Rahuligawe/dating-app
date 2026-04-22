@@ -8,10 +8,15 @@ import org.springframework.web.client.RestTemplate;
 @Configuration
 public class AppConfig {
 
-    // [Fix] @LoadBalanced = Eureka se "user-service" naam resolve karega
     @Bean
     @LoadBalanced
     public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+
+    // Plain RestTemplate for external API calls (Cashfree, etc.)
+    @Bean("externalRestTemplate")
+    public RestTemplate externalRestTemplate() {
         return new RestTemplate();
     }
 }

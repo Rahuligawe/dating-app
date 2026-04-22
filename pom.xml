@@ -20,6 +20,7 @@
         <module>services/radar-service</module>
         <module>services/notification-service</module>
         <module>services/subscription-service</module>
+        <module>services/admin-service</module>
     </modules>
     <properties>
         <java.version>17</java.version>

@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -28,7 +29,7 @@ public class SubscriptionService {
     private final StreamPublisher            streamPublisher;
     private final RedisTemplate<String, Object> redisTemplate;
     private final ReferralService            referralService;
-    private final RazorpayService            razorpayService;
+    private final CashfreeService            cashfreeService;
 
     // Prices from DB — fallback hardcoded
     public static final Map<Plan, Integer> MONTHLY_PRICES = Map.of(
@@ -128,16 +129,20 @@ public class SubscriptionService {
         };
     }
 
-    // ── Create Razorpay Order ─────────────────────────────────────────────────
+    // ── Create Cashfree Order ─────────────────────────────────────────────────
     public Map<String, Object> createPaymentOrder(String userId, Plan plan,
                                                   boolean yearly, String referralCode) {
-        // [Fix] Prices bhi DB se lo agar available ho
+        return createPaymentOrder(userId, plan, yearly, referralCode, null);
+    }
+
+    public Map<String, Object> createPaymentOrder(String userId, Plan plan,
+                                                  boolean yearly, String referralCode,
+                                                  String customerPhone) {
         PlanFeatures features = getPlanFeatures(plan);
         int baseAmountPaise = yearly
                 ? (features.getPriceYearly() * 100)
                 : (features.getPriceMonthly() * 100);
 
-        // Fallback to hardcoded if DB returned 0
         if (baseAmountPaise == 0 && plan != Plan.FREE) {
             baseAmountPaise = yearly ? YEARLY_PRICES.get(plan) : MONTHLY_PRICES.get(plan);
         }
@@ -154,18 +159,31 @@ public class SubscriptionService {
             }
         }
 
-        String receipt = "ord_" + (System.currentTimeMillis() % 1000000000L);
-        Map<String, Object> order = razorpayService.createOrder(finalAmountPaise, receipt);
+        // Cashfree-compatible order ID (alphanumeric + underscore, max 50 chars)
+        String orderId = "ORD_" + userId.replaceAll("[^a-zA-Z0-9]", "").substring(0, Math.min(8, userId.length()))
+                + "_" + (System.currentTimeMillis() % 1000000000L);
+
+        Map<String, Object> order = cashfreeService.createOrder(finalAmountPaise, orderId, userId, customerPhone);
+
+        // Store order metadata in Redis for webhook activation (TTL = 2 hours)
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("userId",       userId);
+        meta.put("plan",         plan.name());
+        meta.put("yearly",       String.valueOf(yearly));
+        meta.put("referralCode", referralCode != null ? referralCode : "");
+        redisTemplate.opsForHash().putAll("order:meta:" + orderId, meta);
+        redisTemplate.expire("order:meta:" + orderId, 2, TimeUnit.HOURS);
 
         return Map.of(
-                "orderId",         order.get("orderId"),
-                "amount",          finalAmountPaise,
-                "baseAmount",      baseAmountPaise,
-                "discountPercent", discountPercent,
-                "currency",        "INR",
-                "keyId",           order.get("keyId"),
-                "plan",            plan.name(),
-                "yearly",          yearly
+                "orderId",          order.get("orderId"),
+                "paymentSessionId", order.get("paymentSessionId"),
+                "appId",            order.get("appId"),
+                "amount",           finalAmountPaise,
+                "baseAmount",       baseAmountPaise,
+                "discountPercent",  discountPercent,
+                "currency",         "INR",
+                "plan",             plan.name(),
+                "yearly",           yearly
         );
     }
 
@@ -173,13 +191,11 @@ public class SubscriptionService {
     @Transactional
     public UserSubscription verifyAndActivate(String userId, Plan plan,
                                               boolean yearly,
-                                              String razorpayOrderId,
-                                              String razorpayPaymentId,
-                                              String razorpaySignature,
+                                              String cashfreeOrderId,
                                               String referralCode,
                                               boolean usedGiftedPoints) {
-        if (!razorpayService.verifySignature(razorpayOrderId, razorpayPaymentId, razorpaySignature)) {
-            throw new RuntimeException("Invalid payment signature");
+        if (!cashfreeService.verifyPayment(cashfreeOrderId)) {
+            throw new RuntimeException("Payment not completed or invalid order");
         }
 
         PlanFeatures features = getPlanFeatures(plan);
@@ -192,7 +208,7 @@ public class SubscriptionService {
         if (referralCode != null && !referralCode.isBlank()) {
             referralService.applyReferral(referralCode, userId, amountPaise, usedGiftedPoints);
         }
-        return upgradePlan(userId, plan, razorpayPaymentId, "RAZORPAY", yearly);
+        return upgradePlan(userId, plan, cashfreeOrderId, "CASHFREE", yearly);
     }
 
     @Transactional
@@ -232,6 +248,40 @@ public class SubscriptionService {
         referralService.generateCodeForUser(userId);
         log.info("Subscription activated: user={} plan={}", userId, newPlan);
         return saved;
+    }
+
+    // ── Webhook Activation (called by Cashfree webhook) ───────────────────────
+    @Transactional
+    public void activateByWebhook(String orderId) {
+        // 1. Verify payment with Cashfree API
+        if (!cashfreeService.verifyPayment(orderId)) {
+            log.warn("Webhook: payment not confirmed for orderId={}", orderId);
+            return;
+        }
+        // 2. Look up order metadata from Redis
+        Map<Object, Object> meta = redisTemplate.opsForHash().entries("order:meta:" + orderId);
+        if (meta == null || meta.isEmpty()) {
+            log.warn("Webhook: no metadata in Redis for orderId={} — may already be activated", orderId);
+            return;
+        }
+        String userId       = (String) meta.get("userId");
+        Plan   plan         = Plan.valueOf((String) meta.get("plan"));
+        boolean yearly      = "true".equals(meta.get("yearly"));
+        String referralCode = (String) meta.get("referralCode");
+
+        // 3. Check if already activated (idempotency)
+        UserSubscription existing = subscriptionRepository.findByUserId(userId).orElse(null);
+        if (existing != null && orderId.equals(existing.getPaymentId())) {
+            log.info("Webhook: orderId={} already activated for userId={}", orderId, userId);
+            return;
+        }
+        // 4. Activate
+        if (referralCode != null && !referralCode.isBlank()) {
+            referralService.applyReferral(referralCode, userId, 0, false);
+        }
+        upgradePlan(userId, plan, orderId, "CASHFREE", yearly);
+        redisTemplate.delete("order:meta:" + orderId);
+        log.info("Webhook: activated userId={} plan={} yearly={}", userId, plan, yearly);
     }
 
     // Backward compat

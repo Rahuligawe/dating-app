@@ -64,7 +64,7 @@ public class SubscriptionController {
 
     // ── Payment Flow ──────────────────────────────────────────────────────────
 
-    // Step 1: Create Razorpay order (call this first from Android)
+    // Step 1: Create Cashfree order (call this first from Android)
     /*@PostMapping("/order/create")
     public ResponseEntity<Map<String, Object>> createOrder(
             @RequestHeader("X-User-Id") String userId,
@@ -97,10 +97,11 @@ public class SubscriptionController {
             }
 
             boolean yearly = Boolean.TRUE.equals(body.get("yearly"));
-            String referralCode = (String) body.get("referralCode");
+            String referralCode  = (String) body.get("referralCode");
+            String customerPhone = (String) body.get("customerPhone");
 
             Map<String, Object> result = subscriptionService
-                    .createPaymentOrder(userId, plan, yearly, referralCode);
+                    .createPaymentOrder(userId, plan, yearly, referralCode, customerPhone);
 
             log.info("Order created: {}", result);
             return ResponseEntity.ok(result);
@@ -112,21 +113,24 @@ public class SubscriptionController {
         }
     }
 
-    // Step 2: Verify payment + activate (call after Razorpay success)
+    // Step 2: Verify payment + activate (call after Cashfree payment success)
     @PostMapping("/verify")
-    public ResponseEntity<UserSubscription> verifyPayment(
+    public ResponseEntity<?> verifyPayment(
             @RequestHeader("X-User-Id") String userId,
             @RequestBody Map<String, String> body) {
-        return ResponseEntity.ok(subscriptionService.verifyAndActivate(
-                userId,
-                Plan.valueOf(body.get("plan").toUpperCase()),
-                Boolean.parseBoolean(body.get("yearly")),
-                body.get("razorpayOrderId"),
-                body.get("razorpayPaymentId"),
-                body.get("razorpaySignature"),
-                body.get("referralCode"),
-                Boolean.parseBoolean(body.getOrDefault("usedGiftedPoints", "false"))
-        ));
+        try {
+            return ResponseEntity.ok(subscriptionService.verifyAndActivate(
+                    userId,
+                    Plan.valueOf(body.get("plan").toUpperCase()),
+                    Boolean.parseBoolean(body.get("yearly")),
+                    body.get("orderId"),
+                    body.get("referralCode"),
+                    Boolean.parseBoolean(body.getOrDefault("usedGiftedPoints", "false"))
+            ));
+        } catch (Exception e) {
+            log.error("Verify payment failed: {}", e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     // Purchase via points (no Razorpay)
@@ -195,6 +199,31 @@ public class SubscriptionController {
                 ((Number) body.get("amount")).doubleValue(),
                 (String) body.get("upiId")
         ));
+    }
+
+    // ── Cashfree Webhook ──────────────────────────────────────────────────────
+    // Cashfree calls this automatically on payment success/failure
+    @PostMapping("/cashfree-webhook")
+    public ResponseEntity<Void> cashfreeWebhook(@RequestBody Map<String, Object> payload) {
+        try {
+            log.info("Cashfree webhook received: type={}", payload.get("type"));
+            Map<String, Object> data = (Map<String, Object>) payload.get("data");
+            if (data == null) return ResponseEntity.ok().build();
+
+            Map<String, Object> order = (Map<String, Object>) data.get("order");
+            if (order == null) return ResponseEntity.ok().build();
+
+            String orderId    = (String) order.get("order_id");
+            String orderStatus = (String) order.get("order_status");
+
+            if ("PAID".equals(orderStatus) && orderId != null) {
+                subscriptionService.activateByWebhook(orderId);
+            }
+        } catch (Exception e) {
+            log.error("Webhook processing error: {}", e.getMessage(), e);
+        }
+        // Always return 200 — Cashfree retries on non-2xx
+        return ResponseEntity.ok().build();
     }
 
     @GetMapping("/health")

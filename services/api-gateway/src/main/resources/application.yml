@@ -84,6 +84,13 @@ spring:
           filters:
             - AuthFilter
 
+        - id: admin-service
+          uri: ${ADMIN_SERVICE_URL:http://localhost:8095}
+          predicates:
+            - Path=/api/admin/**,/api/ads/**
+          filters:
+            - AuthFilter
+
       globalcors:
         cors-configurations:
           '[/**]':
