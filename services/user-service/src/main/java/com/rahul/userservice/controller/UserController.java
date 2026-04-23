@@ -145,4 +145,12 @@ public class UserController {
     public ResponseEntity<UserProfileResponse> getUserProfile(@PathVariable String userId) {
         return ResponseEntity.ok(userService.getProfile(userId));
     }
+
+    // ─── Delete Account ───────────────────────────────────────────────────────
+    // Deletes: Oracle Object Storage photos + Redis presence + DB rows + Kafka event
+    @DeleteMapping("/me")
+    public ResponseEntity<Void> deleteAccount(@RequestHeader("X-User-Id") String userId) {
+        userService.deleteAccount(userId);
+        return ResponseEntity.noContent().build();
+    }
 }
