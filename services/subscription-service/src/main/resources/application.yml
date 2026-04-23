@@ -45,6 +45,9 @@ spring:
           max-active: 2
           time-between-eviction-runs: 300000
 
+services:
+  user-service-url: ${USER_SERVICE_URL:http://user-service:8082}
+
 eureka:
   client:
     enabled: false
@@ -54,7 +57,14 @@ management:
     redis:
       enabled: false
 
-razorpay:
-  key:
-    id: ${RAZORPAY_KEY_ID:rzp_test_SX9ltNhrJDqiYU}
-    secret: ${RAZORPAY_KEY_SECRET:wgL0ZWIErl0DvzmOZE9ZTt5a}
+# razorpay:  # disabled — replaced by Cashfree
+#   key:
+#     id: ${RAZORPAY_KEY_ID}
+#     secret: ${RAZORPAY_KEY_SECRET}
+
+cashfree:
+  app:
+    id: ${CASHFREE_APP_ID}
+  secret:
+    key: ${CASHFREE_SECRET_KEY}
+  env: ${CASHFREE_ENV:TEST}

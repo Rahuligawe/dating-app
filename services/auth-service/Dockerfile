@@ -19,6 +19,7 @@ COPY services/mood-service/pom.xml services/mood-service/pom.xml
 COPY services/radar-service/pom.xml services/radar-service/pom.xml
 COPY services/notification-service/pom.xml services/notification-service/pom.xml
 COPY services/subscription-service/pom.xml services/subscription-service/pom.xml
+COPY services/admin-service/pom.xml       services/admin-service/pom.xml
 RUN ./mvnw dependency:resolve -pl services/auth-service -q 2>/dev/null || true
 
 COPY services/auth-service/src services/auth-service/src

@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +30,7 @@ public class UserService {
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final RedisTemplate<String, Object> redisTemplate;
     private final StringRedisTemplate stringRedisTemplate;
+    private final JdbcTemplate jdbcTemplate;
 
     // Redis key prefix for online status
     private static final String ONLINE_KEY = "presence:";
@@ -266,6 +268,106 @@ public class UserService {
             log.warn("Kafka send failed (non-fatal): {}", e.getMessage());
         }
         return settings;
+    }
+
+    // ─── Delete Account ───────────────────────────────────────────────────────
+
+    @Transactional
+    public void deleteAccount(String userId) {
+        UserProfile profile = userProfileRepository.findById(userId).orElse(null);
+        if (profile == null) {
+            log.warn("deleteAccount called for non-existent user: {}", userId);
+            return;
+        }
+
+        // ── Step 1: Oracle Object Storage — all photos delete karo ───────────
+        if (profile.getPhotos() != null) {
+            for (String photoUrl : profile.getPhotos()) {
+                try { photoUploadService.delete(photoUrl); }
+                catch (Exception e) {
+                    log.warn("Photo delete failed ({}): {}", photoUrl, e.getMessage());
+                }
+            }
+        }
+        if (profile.getVerificationPhotoUrl() != null) {
+            try { photoUploadService.delete(profile.getVerificationPhotoUrl()); }
+            catch (Exception e) {
+                log.warn("VerificationPhoto delete failed: {}", e.getMessage());
+            }
+        }
+
+        // ── Step 2: Redis presence clear karo ────────────────────────────────
+        try { redisTemplate.delete(ONLINE_KEY + userId); }
+        catch (Exception e) {
+            log.warn("Redis delete failed (non-fatal): {}", e.getMessage());
+        }
+
+        // ── Step 3: Supabase — sab related tables se data delete karo ────────
+        // Shared PostgreSQL DB hai, isliye direct SQL se sab clean karo.
+        // Order important hai — FK violations se bachne ke liye leaf tables pehle.
+
+        deleteFromAllTables(userId);
+
+        // ── Step 4: user_profiles + @ElementCollection tables (JPA cascade) ──
+        // user_photos, user_interests, user_looking_for — JPA automatically delete karta hai
+        userProfileRepository.deleteById(userId);
+
+        // ── Step 5: Kafka event — future listeners ke liye ───────────────────
+        try {
+            kafkaTemplate.send("user.deleted", userId, Map.of("userId", userId));
+        } catch (Exception e) {
+            log.warn("Kafka user.deleted send failed (non-fatal): {}", e.getMessage());
+        }
+
+        log.info("Account fully deleted — userId: {}", userId);
+    }
+
+    private void deleteFromAllTables(String userId) {
+        // Mood data — user ke moods pe jo comments/likes/dislikes hain wo pehle
+        safeDelete("DELETE FROM mood_comments WHERE mood_id IN (SELECT id FROM mood_status WHERE user_id = ?)", userId);
+        safeDelete("DELETE FROM mood_likes    WHERE mood_id IN (SELECT id FROM mood_status WHERE user_id = ?)", userId);
+        safeDelete("DELETE FROM mood_dislikes WHERE mood_id IN (SELECT id FROM mood_status WHERE user_id = ?)", userId);
+
+        // User ne dusron ke moods pe jo reactions kiye
+        safeDelete("DELETE FROM mood_comments WHERE user_id = ?", userId);
+        safeDelete("DELETE FROM mood_likes    WHERE user_id = ?", userId);
+        safeDelete("DELETE FROM mood_dislikes WHERE user_id = ?", userId);
+
+        // User ke apne moods
+        safeDelete("DELETE FROM mood_status WHERE user_id = ?", userId);
+
+        // Swipes — user ne kiye aur user pe kiye gaye dono
+        safeDelete("DELETE FROM swipes WHERE from_user_id = ? OR to_user_id = ?", userId, userId);
+
+        // Matches
+        safeDelete("DELETE FROM matches WHERE user1_id = ? OR user2_id = ?", userId, userId);
+
+        // Subscription data
+        safeDelete("DELETE FROM referral_usages    WHERE owner_user_id = ? OR buyer_user_id = ?", userId, userId);
+        safeDelete("DELETE FROM referral_codes     WHERE owner_user_id = ?", userId);
+        safeDelete("DELETE FROM points_transactions WHERE user_id = ?", userId);
+        safeDelete("DELETE FROM points_wallets     WHERE user_id = ?", userId);
+        safeDelete("DELETE FROM user_subscriptions WHERE user_id = ?", userId);
+
+        // Device & notification data
+        safeDelete("DELETE FROM device_tokens      WHERE user_id = ?", userId);
+        safeDelete("DELETE FROM notification_logs  WHERE user_id = ?", userId);
+
+        // Location / nearby
+        safeDelete("DELETE FROM user_locations   WHERE user_id = ?", userId);
+        safeDelete("DELETE FROM nearby_settings  WHERE user_id = ?", userId);
+
+        // Auth account
+        safeDelete("DELETE FROM auth_users WHERE id = ?", userId);
+    }
+
+    private void safeDelete(String sql, Object... args) {
+        try {
+            int rows = jdbcTemplate.update(sql, args);
+            log.debug("Deleted {} row(s): {}", rows, sql.substring(0, Math.min(60, sql.length())));
+        } catch (Exception e) {
+            log.warn("safeDelete failed (non-fatal) — SQL: {} | Error: {}", sql, e.getMessage());
+        }
     }
 
     // ─── Update Subscription (called from Kafka listener) ────────────────────

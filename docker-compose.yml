@@ -44,6 +44,7 @@ services:
       RADAR_SERVICE_URL: http://dating-radar:8089
       SUBSCRIPTION_SERVICE_URL: http://dating-subscription:8091
       NOTIFICATION_SERVICE_URL: http://dating-notification:8092
+      ADMIN_SERVICE_URL: http://dating-admin:8095
     networks:
       - dating-network
     restart: unless-stopped
@@ -154,7 +155,7 @@ services:
       - .env
     environment:
       MONGODB_URL: ${MONGODB_URI}
-      REDIS_URL: ${REDIS_URL}
+      REDIS_URL: redis://busy_jemison:6379
       JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
@@ -261,6 +262,7 @@ services:
       DB_PASS: ${DB_PASS}
       REDIS_URL: ${REDIS_URL}
       SWIPE_SERVICE_URL: http://dating-swipe:8083
+      MATCH_SERVICE_URL: http://dating-match:8084
       JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
@@ -284,6 +286,33 @@ services:
       REDIS_URL: ${REDIS_URL}
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
+      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
+    networks:
+      - dating-network
+    restart: unless-stopped
+
+  admin-service:
+    build:
+      context: .
+      dockerfile: services/admin-service/Dockerfile
+    container_name: dating-admin
+    ports:
+      - "8095:8095"
+    depends_on:
+      - eureka-server
+    env_file:
+      - .env
+    environment:
+      ADMIN_DB_URL: ${ADMIN_DB_URL}
+      AUTH_DB_URL: ${AUTH_DB_URL}
+      USER_DB_URL: ${USER_DB_URL}
+      SWIPE_DB_URL: ${SWIPE_DB_URL}
+      MATCH_DB_URL: ${MATCH_DB_URL}
+      MOOD_DB_URL: ${MOOD_DB_URL}
+      SUBSCRIPTION_DB_URL: ${SUBSCRIPTION_DB_URL}
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      REDIS_URL: ${REDIS_URL}
       JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network

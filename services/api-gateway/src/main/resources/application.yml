@@ -4,6 +4,8 @@ server:
 spring:
   application:
     name: api-gateway
+  codec:
+    max-in-memory-size: 50MB   # Gateway buffer — default 256KB causes 413 on large uploads
   cloud:
     gateway:
       routes:
@@ -81,6 +83,13 @@ spring:
           uri: ${RADAR_SERVICE_URL:http://localhost:8089}
           predicates:
             - Path=/api/radar/**
+          filters:
+            - AuthFilter
+
+        - id: admin-service
+          uri: ${ADMIN_SERVICE_URL:http://localhost:8095}
+          predicates:
+            - Path=/api/admin/**,/api/ads/**
           filters:
             - AuthFilter
 

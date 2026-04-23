@@ -28,4 +28,8 @@ public interface MessageRepository
             String conversationId,
             String userId
     );
+
+    // Undelivered messages for a specific receiver in a conversation
+    @Query("{ 'conversationId': ?0, 'receiverId': ?1, 'delivered': false }")
+    List<Message> findUndeliveredMessages(String conversationId, String receiverId);
 }

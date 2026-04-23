@@ -64,20 +64,20 @@ public class NotificationService {
 
         for (DeviceToken deviceToken : tokens) {
             try {
+                // Data-only message: onMessageReceived always fires (even when app is in background/killed)
+                // Notification payload would bypass onMessageReceived in background, breaking navigation
                 Message.Builder builder = Message.builder()
                         .setToken(deviceToken.getToken())
-                        .setNotification(Notification.builder()
-                                .setTitle(title)
-                                .setBody(body)
-                                .build())
-                        .putData("type", type);
+                        .putData("type", type)
+                        .putData("title", title)
+                        .putData("body", body);
 
                 // Add extra data if present
                 if (data != null) {
                     data.forEach(builder::putData);
                 }
 
-                // Android high priority
+                // Android high priority — ensures delivery even in Doze mode
                 builder.setAndroidConfig(
                         AndroidConfig.builder()
                                 .setPriority(AndroidConfig.Priority.HIGH)
