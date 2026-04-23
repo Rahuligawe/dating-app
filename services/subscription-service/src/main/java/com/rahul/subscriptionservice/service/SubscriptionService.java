@@ -132,12 +132,21 @@ public class SubscriptionService {
     // ── Create Cashfree Order ─────────────────────────────────────────────────
     public Map<String, Object> createPaymentOrder(String userId, Plan plan,
                                                   boolean yearly, String referralCode) {
-        return createPaymentOrder(userId, plan, yearly, referralCode, null);
+        return createPaymentOrder(userId, plan, yearly, referralCode, null, 0);
     }
 
     public Map<String, Object> createPaymentOrder(String userId, Plan plan,
                                                   boolean yearly, String referralCode,
                                                   String customerPhone) {
+        return createPaymentOrder(userId, plan, yearly, referralCode, customerPhone, 0);
+    }
+
+    public Map<String, Object> createPaymentOrder(String userId, Plan plan,
+                                                  boolean yearly, String referralCode,
+                                                  String customerPhone, int pointsToUse) {
+        // Block downgrade / same-plan re-purchase on backend too
+        checkUpgradeAllowed(userId, plan);
+
         PlanFeatures features = getPlanFeatures(plan);
         int baseAmountPaise = yearly
                 ? (features.getPriceYearly() * 100)
@@ -159,6 +168,17 @@ public class SubscriptionService {
             }
         }
 
+        // Points discount — validate against actual wallet balance
+        int validatedPoints = 0;
+        if (pointsToUse > 0) {
+            com.rahul.subscriptionservice.entity.PointsWallet wallet =
+                    referralService.getWallet(userId);
+            validatedPoints = Math.min(pointsToUse, (int) wallet.getBalance());
+            validatedPoints = Math.min(validatedPoints, finalAmountPaise / 100); // can't exceed plan price
+            finalAmountPaise -= validatedPoints * 100;
+            if (finalAmountPaise < 0) finalAmountPaise = 0;
+        }
+
         // Cashfree-compatible order ID (alphanumeric + underscore, max 50 chars)
         String orderId = "ORD_" + userId.replaceAll("[^a-zA-Z0-9]", "").substring(0, Math.min(8, userId.length()))
                 + "_" + (System.currentTimeMillis() % 1000000000L);
@@ -171,20 +191,22 @@ public class SubscriptionService {
         meta.put("plan",         plan.name());
         meta.put("yearly",       String.valueOf(yearly));
         meta.put("referralCode", referralCode != null ? referralCode : "");
+        meta.put("pointsToUse",  String.valueOf(validatedPoints));
         redisTemplate.opsForHash().putAll("order:meta:" + orderId, meta);
         redisTemplate.expire("order:meta:" + orderId, 2, TimeUnit.HOURS);
 
-        return Map.of(
-                "orderId",          order.get("orderId"),
-                "paymentSessionId", order.get("paymentSessionId"),
-                "appId",            order.get("appId"),
-                "amount",           finalAmountPaise,
-                "baseAmount",       baseAmountPaise,
-                "discountPercent",  discountPercent,
-                "currency",         "INR",
-                "plan",             plan.name(),
-                "yearly",           yearly
-        );
+        Map<String, Object> result = new HashMap<>();
+        result.put("orderId",          order.get("orderId"));
+        result.put("paymentSessionId", order.get("paymentSessionId"));
+        result.put("appId",            order.get("appId"));
+        result.put("amount",           finalAmountPaise);
+        result.put("baseAmount",       baseAmountPaise);
+        result.put("discountPercent",  discountPercent);
+        result.put("currency",         "INR");
+        result.put("plan",             plan.name());
+        result.put("yearly",           yearly);
+        result.put("pointsUsed",       validatedPoints);
+        return result;
     }
 
     // ── Verify + Activate ─────────────────────────────────────────────────────
@@ -194,6 +216,16 @@ public class SubscriptionService {
                                               String cashfreeOrderId,
                                               String referralCode,
                                               boolean usedGiftedPoints) {
+        return verifyAndActivate(userId, plan, yearly, cashfreeOrderId, referralCode, usedGiftedPoints, 0);
+    }
+
+    @Transactional
+    public UserSubscription verifyAndActivate(String userId, Plan plan,
+                                              boolean yearly,
+                                              String cashfreeOrderId,
+                                              String referralCode,
+                                              boolean usedGiftedPoints,
+                                              int pointsToUse) {
         if (!cashfreeService.verifyPayment(cashfreeOrderId)) {
             throw new RuntimeException("Payment not completed or invalid order");
         }
@@ -208,15 +240,28 @@ public class SubscriptionService {
         if (referralCode != null && !referralCode.isBlank()) {
             referralService.applyReferral(referralCode, userId, amountPaise, usedGiftedPoints);
         }
+        // Deduct points used during checkout
+        if (pointsToUse > 0) {
+            referralService.deductPointsForPurchase(userId, pointsToUse);
+        }
         return upgradePlan(userId, plan, cashfreeOrderId, "CASHFREE", yearly);
     }
 
     @Transactional
-    public UserSubscription activateViaPoints(String userId, Plan plan) {
-        Map<String, Object> result = referralService.redeemForSubscription(userId, plan);
-        if (!(boolean) result.get("success"))
-            throw new RuntimeException((String) result.get("message"));
-        return upgradePlan(userId, plan, "POINTS_REDEMPTION", "POINTS", false);
+    public UserSubscription activateViaPoints(String userId, Plan plan, boolean yearly, int pointsToUse) {
+        // Same upgrade/downgrade guard as payment flow
+        checkUpgradeAllowed(userId, plan);
+
+        if (pointsToUse > 0) {
+            // Explicit deduction — caller validated the amount
+            referralService.deductPointsForPurchase(userId, pointsToUse);
+        } else {
+            // Legacy: deduct full plan price in points
+            Map<String, Object> result = referralService.redeemForSubscription(userId, plan, yearly);
+            if (!(boolean) result.get("success"))
+                throw new RuntimeException((String) result.get("message"));
+        }
+        return upgradePlan(userId, plan, "POINTS_REDEMPTION", "POINTS", yearly);
     }
 
     @Transactional
@@ -279,9 +324,41 @@ public class SubscriptionService {
         if (referralCode != null && !referralCode.isBlank()) {
             referralService.applyReferral(referralCode, userId, 0, false);
         }
+        // Deduct points used at checkout (stored in Redis meta)
+        String pointsToUseStr = (String) meta.get("pointsToUse");
+        int pointsToUse = (pointsToUseStr != null && !pointsToUseStr.isBlank())
+                ? Integer.parseInt(pointsToUseStr) : 0;
+        if (pointsToUse > 0) {
+            referralService.deductPointsForPurchase(userId, pointsToUse);
+        }
         upgradePlan(userId, plan, orderId, "CASHFREE", yearly);
         redisTemplate.delete("order:meta:" + orderId);
-        log.info("Webhook: activated userId={} plan={} yearly={}", userId, plan, yearly);
+        log.info("Webhook: activated userId={} plan={} yearly={} pointsUsed={}",
+                userId, plan, yearly, pointsToUse);
+    }
+
+    // ── Plan Hierarchy Guard ──────────────────────────────────────────────────
+    // FREE < PREMIUM < ULTRA (ordinal order matches enum declaration)
+    // Blocks: same-plan re-purchase and downgrades while subscription is still active
+    private void checkUpgradeAllowed(String userId, Plan newPlan) {
+        UserSubscription current = getSubscription(userId);
+        Plan currentPlan = current.getPlan();
+        boolean isActive = Boolean.TRUE.equals(current.getIsActive())
+                        && current.getEndDate() != null
+                        && current.getEndDate().isAfter(LocalDateTime.now());
+
+        if (currentPlan == Plan.FREE || !isActive) return; // always allow upgrade from FREE / expired
+
+        if (newPlan.ordinal() == currentPlan.ordinal()) {
+            throw new IllegalArgumentException(
+                "You are already on " + currentPlan.name() + " plan. " +
+                "Wait for your current subscription to end before resubscribing.");
+        }
+        if (newPlan.ordinal() < currentPlan.ordinal()) {
+            throw new IllegalArgumentException(
+                "Cannot switch from " + currentPlan.name() + " to " + newPlan.name() + ". " +
+                "Wait for your current subscription to end.");
+        }
     }
 
     // Backward compat

@@ -45,6 +45,9 @@ spring:
           max-active: 2
           time-between-eviction-runs: 300000
 
+services:
+  user-service-url: ${USER_SERVICE_URL:http://user-service:8082}
+
 eureka:
   client:
     enabled: false

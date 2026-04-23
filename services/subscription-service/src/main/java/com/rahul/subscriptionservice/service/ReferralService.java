@@ -7,6 +7,7 @@ import com.rahul.subscriptionservice.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.rahul.subscriptionservice.stream.StreamPublisher;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -25,7 +26,12 @@ public class ReferralService {
     private final PointsWalletRepository      walletRepo;
     private final PointsTransactionRepository txRepo;
     private final StreamPublisher streamPublisher;
-    private final RestTemplate                restTemplate; // [NEW] smart code ke liye
+    /** Must be the NON-@LoadBalanced bean — @LoadBalanced requires Eureka which is disabled */
+    private final RestTemplate                externalRestTemplate;
+
+    /** User-service base URL — injected so it works in both local and Docker environments */
+    @Value("${services.user-service-url:http://user-service:8082}")
+    private String userServiceUrl;
 
     // ── Generate Referral Code for new user ──────────────────────────────────
     @Transactional
@@ -52,8 +58,8 @@ public class ReferralService {
 
         try {
             @SuppressWarnings("unchecked")
-            Map<String, Object> profile = restTemplate.getForObject(
-                    "http://user-service/api/users/" + userId, Map.class);
+            Map<String, Object> profile = externalRestTemplate.getForObject(
+                    userServiceUrl + "/api/users/" + userId, Map.class);
 
             if (profile != null) {
                 name = (String) profile.get("name");
@@ -187,7 +193,8 @@ public class ReferralService {
     // ── Gift Points ───────────────────────────────────────────────────────────
     @Transactional
     public Map<String, Object> giftPoints(String fromUserId, String toUserId,
-                                          double amount) {
+                                          double amount,
+                                          String fromNameHint, String toNameHint) {
         PointsWallet fromWallet = getOrCreateWallet(fromUserId);
 
         if (fromWallet.getBalance() < amount) {
@@ -197,25 +204,33 @@ public class ReferralService {
             return Map.of("success", false, "message", "Minimum gift is 1 point");
         }
 
+        // Use Android-provided names first (reliable), fall back to user-service call
+        String senderName   = (fromNameHint != null && !fromNameHint.isBlank())
+                ? fromNameHint : fetchUserName(fromUserId);
+        String receiverName = (toNameHint != null && !toNameHint.isBlank())
+                ? toNameHint : fetchUserName(toUserId);
+
+        // ── Debit sender ──────────────────────────────────────────────────────
         fromWallet.setBalance(fromWallet.getBalance() - amount);
         fromWallet.setGifted(fromWallet.getGifted() + amount);
         walletRepo.save(fromWallet);
         debitPoints(fromUserId, amount, TransactionType.GIFT_SENT,
-                "Gifted to " + toUserId, toUserId, false);
+                "Gifted to " + receiverName, toUserId, false);
 
+        // ── Credit recipient ──────────────────────────────────────────────────
+        // NOTE: creditPoints() already updates balance + totalEarned inside the wallet.
+        // We ONLY update giftedBalance here to avoid double-crediting.
         PointsWallet toWallet = getOrCreateWallet(toUserId);
-        toWallet.setBalance(toWallet.getBalance() + amount);
-        toWallet.setTotalEarned(toWallet.getTotalEarned() + amount);
         toWallet.setGiftedBalance(toWallet.getGiftedBalance() + amount);
         walletRepo.save(toWallet);
         creditPoints(toUserId, amount, TransactionType.GIFT_RECEIVED,
-                "Gift from " + fromUserId, fromUserId, true);
+                "Gift from " + senderName, fromUserId, true);
 
         streamPublisher.publish("notification.send", Map.of(
                 "userId", toUserId,
                 "type",   "GIFT_RECEIVED",
-                "title",  "You received ₹" + String.format("%.0f", amount) + " points! 🎁",
-                "body",   "A friend sent you points as a gift"
+                "title",  senderName + " gifted you " + String.format("%.0f", amount) + " points! 🎁",
+                "body",   senderName + " has sent you " + (int)amount + " points as a gift"
         ));
 
         return Map.of("success", true,
@@ -223,14 +238,42 @@ public class ReferralService {
                 "newBalance", fromWallet.getBalance());
     }
 
+    // ── Admin: Credit Bonus Points ────────────────────────────────────────────
+    @Transactional
+    public void creditBonusPoints(String userId, double amount, String reason) {
+        creditPoints(userId, amount, TransactionType.BONUS, reason, null, false);
+        log.info("Admin bonus: userId={} amount={} reason={}", userId, amount, reason);
+    }
+
+    // ── Helper: fetch user's display name from user-service ──────────────────
+    /** Public so controller can expose it for referral-code lookup response. */
+    public String fetchUserNamePublic(String userId) {
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> profile = externalRestTemplate.getForObject(
+                    userServiceUrl + "/api/users/" + userId, Map.class);
+            if (profile != null && profile.get("name") != null) {
+                return (String) profile.get("name");
+            }
+        } catch (Exception e) {
+            log.warn("Could not fetch name for userId={}: {}", userId, e.getMessage());
+        }
+        return "";
+    }
+
+    private String fetchUserName(String userId) {
+        String name = fetchUserNamePublic(userId);
+        return name.isBlank() ? "A friend" : name;
+    }
+
     // ── Redeem Points for Subscription ───────────────────────────────────────
     @Transactional
-    public Map<String, Object> redeemForSubscription(String userId, Plan plan) {
+    public Map<String, Object> redeemForSubscription(String userId, Plan plan, boolean yearly) {
         PointsWallet wallet = getOrCreateWallet(userId);
 
         int priceInr = switch (plan) {
-            case PREMIUM -> 99;
-            case ULTRA   -> 299;
+            case PREMIUM -> yearly ? 699 : 99;
+            case ULTRA   -> yearly ? 1999 : 299;
             default      -> throw new RuntimeException("Cannot purchase FREE plan");
         };
 
@@ -262,11 +305,12 @@ public class ReferralService {
     }
 
     // ── Redeem Points for Cash ────────────────────────────────────────────────
+    // Rate: 3 points = ₹1  (subscription use = 1 point = ₹1, encash = 3 points = ₹1)
     @Transactional
     public Map<String, Object> redeemForCash(String userId, double amount,
                                              String upiId) {
         if (amount < 100) {
-            return Map.of("success", false, "message", "Minimum encash amount is 100 points");
+            return Map.of("success", false, "message", "Minimum encash is 100 points (₹33)");
         }
 
         PointsWallet wallet = getOrCreateWallet(userId);
@@ -274,18 +318,46 @@ public class ReferralService {
             return Map.of("success", false, "message", "Insufficient balance");
         }
 
+        // 3 points = ₹1 for encash
+        double cashAmount = Math.floor(amount / 3.0);
+
         wallet.setBalance(wallet.getBalance() - amount);
         wallet.setTotalRedeemed(wallet.getTotalRedeemed() + amount);
         walletRepo.save(wallet);
 
         debitPoints(userId, amount, TransactionType.REDEEMED_CASH,
-                "Encashed to UPI: " + upiId, upiId, false);
+                "Encashed " + (int)amount + " pts → ₹" + (int)cashAmount + " to " + upiId,
+                upiId, false);
 
-        log.info("Payout request: userId={} amount={} upiId={}", userId, amount, upiId);
+        log.info("Payout request: userId={} points={} cashAmount=₹{} upiId={}",
+                userId, (int)amount, (int)cashAmount, upiId);
 
         return Map.of("success", true,
-                "message", "₹" + (int)amount + " will be transferred to " + upiId + " within 24 hours",
-                "newBalance", wallet.getBalance());
+                "message", "₹" + (int)cashAmount + " will be transferred to " + upiId
+                        + " within 24 hours (" + (int)amount + " points encashed)",
+                "newBalance", wallet.getBalance(),
+                "cashAmount", (int)cashAmount);
+    }
+
+    // ── Deduct Points for Partial/Full Subscription Purchase ─────────────────
+    // Called when user applies points during Cashfree checkout or full-points buy
+    @Transactional
+    public void deductPointsForPurchase(String userId, int pointsToUse) {
+        if (pointsToUse <= 0) return;
+        PointsWallet wallet = getOrCreateWallet(userId);
+        if (wallet.getBalance() < pointsToUse) {
+            throw new RuntimeException("Insufficient points: need " + pointsToUse
+                    + ", have " + (int) wallet.getBalance());
+        }
+        boolean usingGiftedPoints = wallet.getGiftedBalance() >= pointsToUse;
+        wallet.setBalance(wallet.getBalance() - pointsToUse);
+        wallet.setTotalRedeemed(wallet.getTotalRedeemed() + pointsToUse);
+        if (usingGiftedPoints) {
+            wallet.setGiftedBalance(Math.max(0, wallet.getGiftedBalance() - pointsToUse));
+        }
+        walletRepo.save(wallet);
+        debitPoints(userId, pointsToUse, TransactionType.REDEEMED_SUB,
+                pointsToUse + " points applied to subscription", null, usingGiftedPoints);
     }
 
     // ── Get Wallet & Transactions ─────────────────────────────────────────────

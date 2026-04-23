@@ -99,9 +99,11 @@ public class SubscriptionController {
             boolean yearly = Boolean.TRUE.equals(body.get("yearly"));
             String referralCode  = (String) body.get("referralCode");
             String customerPhone = (String) body.get("customerPhone");
+            int pointsToUse = body.get("pointsToUse") instanceof Number
+                    ? ((Number) body.get("pointsToUse")).intValue() : 0;
 
             Map<String, Object> result = subscriptionService
-                    .createPaymentOrder(userId, plan, yearly, referralCode, customerPhone);
+                    .createPaymentOrder(userId, plan, yearly, referralCode, customerPhone, pointsToUse);
 
             log.info("Order created: {}", result);
             return ResponseEntity.ok(result);
@@ -119,13 +121,15 @@ public class SubscriptionController {
             @RequestHeader("X-User-Id") String userId,
             @RequestBody Map<String, String> body) {
         try {
+            int pointsToUse = Integer.parseInt(body.getOrDefault("pointsToUse", "0"));
             return ResponseEntity.ok(subscriptionService.verifyAndActivate(
                     userId,
                     Plan.valueOf(body.get("plan").toUpperCase()),
                     Boolean.parseBoolean(body.get("yearly")),
                     body.get("orderId"),
                     body.get("referralCode"),
-                    Boolean.parseBoolean(body.getOrDefault("usedGiftedPoints", "false"))
+                    Boolean.parseBoolean(body.getOrDefault("usedGiftedPoints", "false")),
+                    pointsToUse
             ));
         } catch (Exception e) {
             log.error("Verify payment failed: {}", e.getMessage(), e);
@@ -133,14 +137,21 @@ public class SubscriptionController {
         }
     }
 
-    // Purchase via points (no Razorpay)
+    // Purchase via points (full coverage — no Cashfree needed)
     @PostMapping("/purchase/points")
-    public ResponseEntity<UserSubscription> purchaseViaPoints(
+    public ResponseEntity<?> purchaseViaPoints(
             @RequestHeader("X-User-Id") String userId,
             @RequestBody Map<String, String> body) {
-        return ResponseEntity.ok(
-                subscriptionService.activateViaPoints(userId,
-                        Plan.valueOf(body.get("plan").toUpperCase())));
+        try {
+            boolean yearly     = Boolean.parseBoolean(body.getOrDefault("yearly", "false"));
+            int pointsToUse    = Integer.parseInt(body.getOrDefault("pointsToUse", "0"));
+            return ResponseEntity.ok(
+                    subscriptionService.activateViaPoints(userId,
+                            Plan.valueOf(body.get("plan").toUpperCase()), yearly, pointsToUse));
+        } catch (Exception e) {
+            log.error("Points purchase failed: {}", e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     // ── Referral Endpoints ────────────────────────────────────────────────────
@@ -161,8 +172,12 @@ public class SubscriptionController {
     @GetMapping("/referral/user-by-code/{code}")
     public ResponseEntity<Map<String, Object>> getUserByReferralCode(@PathVariable String code) {
         return referralService.getUserIdByCode(code.toUpperCase())
-                .map(userId -> ResponseEntity.ok(Map.<String, Object>of("userId", userId, "found", true)))
-                .orElse(ResponseEntity.ok(Map.of("userId", "", "found", false)));
+                .map(userId -> {
+                    String name = referralService.fetchUserNamePublic(userId);
+                    return ResponseEntity.ok(Map.<String, Object>of(
+                            "userId", userId, "found", true, "name", name));
+                })
+                .orElse(ResponseEntity.ok(Map.of("userId", "", "found", false, "name", "")));
     }
 
     // ── Points Endpoints ──────────────────────────────────────────────────────
@@ -183,10 +198,14 @@ public class SubscriptionController {
     public ResponseEntity<Map<String, Object>> giftPoints(
             @RequestHeader("X-User-Id") String userId,
             @RequestBody Map<String, Object> body) {
+        String fromName = body.getOrDefault("fromName", "").toString();
+        String toName   = body.getOrDefault("toName",   "").toString();
         return ResponseEntity.ok(referralService.giftPoints(
                 userId,
                 (String) body.get("toUserId"),
-                ((Number) body.get("amount")).doubleValue()
+                ((Number) body.get("amount")).doubleValue(),
+                fromName.isBlank() ? null : fromName,
+                toName.isBlank()   ? null : toName
         ));
     }
 
@@ -224,6 +243,29 @@ public class SubscriptionController {
         }
         // Always return 200 — Cashfree retries on non-2xx
         return ResponseEntity.ok().build();
+    }
+
+    // ── Admin: Manually credit bonus points to any user ──────────────────────
+    @PostMapping("/admin/bonus-points")
+    public ResponseEntity<Map<String, Object>> giveBonusPoints(
+            @RequestBody Map<String, Object> body) {
+        try {
+            String userId = (String) body.get("userId");
+            double amount = ((Number) body.get("amount")).doubleValue();
+            String reason = body.containsKey("reason") ? (String) body.get("reason") : "Admin bonus";
+            if (userId == null || userId.isBlank())
+                return ResponseEntity.badRequest().body(Map.of("error", "userId required"));
+            referralService.creditBonusPoints(userId, amount, reason);
+            PointsWallet wallet = referralService.getWallet(userId);
+            return ResponseEntity.ok(Map.of(
+                    "success",    true,
+                    "userId",     userId,
+                    "credited",   amount,
+                    "newBalance", wallet.getBalance()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     @GetMapping("/health")
