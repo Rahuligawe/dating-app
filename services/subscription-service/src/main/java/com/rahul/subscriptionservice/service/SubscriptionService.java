@@ -278,6 +278,7 @@ public class SubscriptionService {
                 ? LocalDateTime.now().plusYears(1)
                 : LocalDateTime.now().plusMonths(1));
         sub.setIsActive(true);
+        sub.setCancelledAt(null);
         UserSubscription saved = subscriptionRepository.save(sub);
 
         if (newPlan != Plan.FREE) {
@@ -335,6 +336,32 @@ public class SubscriptionService {
         redisTemplate.delete("order:meta:" + orderId);
         log.info("Webhook: activated userId={} plan={} yearly={} pointsUsed={}",
                 userId, plan, yearly, pointsToUse);
+    }
+
+    // ── Cancel Subscription ───────────────────────────────────────────────────
+    @Transactional
+    public Map<String, Object> cancelSubscription(String userId) {
+        UserSubscription sub = subscriptionRepository.findByUserId(userId)
+                .orElseThrow(() -> new RuntimeException("No subscription found"));
+
+        if (sub.getPlan() == Plan.FREE) {
+            throw new RuntimeException("Free plan cannot be cancelled");
+        }
+        if (sub.getCancelledAt() != null) {
+            throw new RuntimeException("Subscription is already cancelled");
+        }
+
+        sub.setCancelledAt(LocalDateTime.now());
+        subscriptionRepository.save(sub);
+
+        log.info("Subscription cancelled: userId={} plan={} endDate={}", userId, sub.getPlan(), sub.getEndDate());
+
+        return Map.of(
+                "success",     true,
+                "plan",        sub.getPlan().name(),
+                "endDate",     sub.getEndDate() != null ? sub.getEndDate().toString() : "",
+                "cancelledAt", sub.getCancelledAt().toString()
+        );
     }
 
     // ── Plan Hierarchy Guard ──────────────────────────────────────────────────

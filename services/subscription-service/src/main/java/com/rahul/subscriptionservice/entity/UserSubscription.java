@@ -31,6 +31,8 @@ public class UserSubscription {
     @Builder.Default
     private Boolean isActive = true;
 
+    private LocalDateTime cancelledAt;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 

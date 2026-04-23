@@ -39,14 +39,27 @@ public class SubscriptionController {
             @RequestHeader("X-User-Id") String userId) {
         UserSubscription sub = subscriptionService.getSubscription(userId);
         Map<String, Object> res = new HashMap<>();
-        res.put("plan",     sub.getPlan().name());
-        res.put("isActive", sub.getIsActive());
-        res.put("endDate",  sub.getEndDate() != null ? sub.getEndDate().toString() : null);
+        res.put("plan",        sub.getPlan().name());
+        res.put("isActive",    sub.getIsActive());
+        res.put("endDate",     sub.getEndDate() != null ? sub.getEndDate().toString() : null);
+        res.put("cancelled",   sub.getCancelledAt() != null);
+        res.put("cancelledAt", sub.getCancelledAt() != null ? sub.getCancelledAt().toString() : null);
         long daysLeft = (sub.getEndDate() != null && sub.getPlan() != UserSubscription.Plan.FREE)
                 ? ChronoUnit.DAYS.between(LocalDateTime.now(), sub.getEndDate())
                 : 0;
         res.put("daysLeft", Math.max(0, daysLeft));
         return ResponseEntity.ok(res);
+    }
+
+    @PostMapping("/my/cancel")
+    public ResponseEntity<?> cancelSubscription(
+            @RequestHeader("X-User-Id") String userId) {
+        try {
+            return ResponseEntity.ok(subscriptionService.cancelSubscription(userId));
+        } catch (Exception e) {
+            log.error("Cancel subscription failed: userId={} error={}", userId, e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     @GetMapping("/plans/all")
