@@ -24,4 +24,7 @@ public interface MatchRepository extends JpaRepository<Match, String> {
             @Param("u2") String user2Id);
 
     long countByUser1IdOrUser2Id(String user1Id, String user2Id);
+
+    @Query("SELECT COUNT(m) FROM Match m WHERE (m.user1Id = :userId OR m.user2Id = :userId) AND m.isActive = true")
+    long countActiveByUserId(@Param("userId") String userId);
 }

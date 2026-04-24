@@ -43,9 +43,19 @@ public class MatchService {
         String user1Id = event.get("user1Id");
         String user2Id = event.get("user2Id");
 
-        if (matchRepository.existsByUser1IdAndUser2Id(user1Id, user2Id)
-                || matchRepository.existsByUser1IdAndUser2Id(user2Id, user1Id)) {
-            log.info("Match already exists between {} and {}", user1Id, user2Id);
+        java.util.Optional<Match> existing = matchRepository.findMatchBetween(user1Id, user2Id);
+
+        if (existing.isPresent()) {
+            Match match = existing.get();
+            if (Boolean.TRUE.equals(match.getIsActive())) {
+                log.info("Match already active between {} and {}", user1Id, user2Id);
+                return;
+            }
+            // Reactivate previously unmatched pair — conversation already exists
+            match.setIsActive(true);
+            matchRepository.save(match);
+            log.info("Match reactivated: {} <-> {} | matchId: {}", user1Id, user2Id, match.getId());
+            notifyMatch(match.getId(), user1Id, user2Id);
             return;
         }
 
@@ -53,26 +63,25 @@ public class MatchService {
                 .user1Id(user1Id)
                 .user2Id(user2Id)
                 .build());
-
-        log.info("✅ Match created: {} <-> {} | matchId: {}", user1Id, user2Id, match.getId());
-
-        // Notify both users
-        streamPublisher.publish("notification.send", Map.of(
-                "userId", user1Id, "type", "NEW_MATCH",
-                "title", "It's a Match! 💘", "body", "You have a new match!",
-                "data", Map.of("matchId", match.getId(), "matchedUserId", user2Id)
-        ));
-        streamPublisher.publish("notification.send", Map.of(
-                "userId", user2Id, "type", "NEW_MATCH",
-                "title", "It's a Match! 💘", "body", "You have a new match!",
-                "data", Map.of("matchId", match.getId(), "matchedUserId", user1Id)
-        ));
-
-        // Tell chat-service to create a conversation
+        log.info("Match created: {} <-> {} | matchId: {}", user1Id, user2Id, match.getId());
+        notifyMatch(match.getId(), user1Id, user2Id);
         streamPublisher.publish("chat.create.conversation", Map.of(
                 "matchId", match.getId(),
                 "user1Id", user1Id,
                 "user2Id", user2Id
+        ));
+    }
+
+    private void notifyMatch(String matchId, String user1Id, String user2Id) {
+        streamPublisher.publish("notification.send", Map.of(
+                "userId", user1Id, "type", "NEW_MATCH",
+                "title", "It's a Match! 💘", "body", "You have a new match!",
+                "data", Map.of("matchId", matchId, "matchedUserId", user2Id)
+        ));
+        streamPublisher.publish("notification.send", Map.of(
+                "userId", user2Id, "type", "NEW_MATCH",
+                "title", "It's a Match! 💘", "body", "You have a new match!",
+                "data", Map.of("matchId", matchId, "matchedUserId", user1Id)
         ));
     }
 
@@ -99,6 +108,17 @@ public class MatchService {
         match.setIsActive(false);
         matchRepository.save(match);
         log.info("Unmatched: {}", matchId);
+    }
+
+    // Called by Kafka consumer when swipe-service publishes match.unmatch
+    @Transactional
+    public void unmatchByUserIds(String user1Id, String user2Id) {
+        matchRepository.findMatchBetween(user1Id, user2Id).ifPresent(match -> {
+            if (Boolean.FALSE.equals(match.getIsActive())) return;
+            match.setIsActive(false);
+            matchRepository.save(match);
+            log.info("Match deactivated by userId pair: {} <-> {}", user1Id, user2Id);
+        });
     }
 
     // ─── REST: Matches WITH other user profile + last message ─────────────────
@@ -174,7 +194,7 @@ public class MatchService {
     }
 
     public long getMatchCount(String userId) {
-        return matchRepository.countByUser1IdOrUser2Id(userId, userId);
+        return matchRepository.countActiveByUserId(userId);
     }
 
     // Internal — returns all user IDs that are matched with userId

@@ -58,11 +58,38 @@ public class SwipeService {
                 // Same action again — nothing to do
                 return Map.of("status", "already_swiped", "isMatch", false);
             }
-            // Different action (e.g. LIKE → DISLIKE = "unlike") — UPDATE the row
+            // LIKE/SUPER_LIKE → DISLIKE = "unmatch" — deactivate any existing match
+            if (action == SwipeAction.DISLIKE
+                    && (existing.getAction() == SwipeAction.LIKE
+                        || existing.getAction() == SwipeAction.SUPER_LIKE)) {
+                streamPublisher.publish("match.unmatch", Map.of(
+                        "user1Id", fromUserId,
+                        "user2Id", toUserId
+                ));
+                log.info("Unmatch event published: {} unmatched {}", fromUserId, toUserId);
+            }
             existing.setAction(action);
             swipeRepository.save(existing);
             log.info("Swipe updated: {} → {} action={}", fromUserId, toUserId, action);
-            return Map.of("status", "updated", "isMatch", false);
+
+            // DISLIKE → LIKE (re-like): check mutual like again — may trigger re-match
+            boolean isMatch = false;
+            if (action == SwipeAction.LIKE || action == SwipeAction.SUPER_LIKE) {
+                boolean theyLikedMe =
+                        swipeRepository.existsByFromUserIdAndToUserIdAndAction(
+                                toUserId, fromUserId, SwipeAction.LIKE)
+                        || swipeRepository.existsByFromUserIdAndToUserIdAndAction(
+                                toUserId, fromUserId, SwipeAction.SUPER_LIKE);
+                if (theyLikedMe) {
+                    isMatch = true;
+                    streamPublisher.publish("match.create", Map.of(
+                            "user1Id", fromUserId,
+                            "user2Id", toUserId
+                    ));
+                    log.info("Re-match triggered between {} and {}", fromUserId, toUserId);
+                }
+            }
+            return Map.of("status", "updated", "isMatch", isMatch);
         }
 
         // Check daily limit (FREE users only — premium check via Redis flag)
