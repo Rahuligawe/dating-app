@@ -88,6 +88,7 @@ export interface UserDetail {
   moodDislikesReceived: number
   moodCommentsReceived: number
   pointsBalance: number
+  referralCode?: string
 }
 
 export interface MoodPost {
@@ -158,6 +159,44 @@ export interface PostEngagement {
   createdAt: string
 }
 
+export interface UserLookup {
+  userId: string
+  name: string
+  referralCode: string
+  found: boolean
+}
+
+export interface DailyStat {
+  date: string
+  swipesGiven: number
+  likesGiven: number
+  dislikesGiven: number
+  likesReceived: number
+  dislikesReceived: number
+  matchesMade: number
+}
+
+export interface StatUser {
+  userId: string
+  name?: string
+  action: string
+  createdAt: string
+}
+
+export interface SessionDailyStat {
+  date: string
+  sessions: number
+  totalMinutes: number
+  avgMinutesPerSession: number
+}
+
+export interface TopSessionUser {
+  userId: string
+  name?: string
+  totalMinutes: number
+  sessions: number
+}
+
 export interface AdStats {
   totalImpressions: number
   impressionsToday: number
@@ -202,6 +241,69 @@ export const giveRewardPoints = (userId: string, amount: number, reason: string)
   api.post<{ success: boolean; newBalance: number; credited: number }>(
     `/admin/user/${userId}/reward-points`, { amount, reason }
   ).then(r => r.data)
+
+export const removePoints = (userId: string, amount: number, reason: string) =>
+  api.post<{ success: boolean; newBalance: number }>(`/admin/user/${userId}/remove-points`, { amount, reason }).then(r => r.data)
+
+export const getUserByReferralCode = (code: string) =>
+  api.get<UserLookup>(`/admin/user/by-referral/${code}`).then(r => r.data)
+
+export const giftPoints = (fromUserId: string, recipientReferralCode: string, amount: number, reason: string) =>
+  api.post<{ success: boolean; gifted: number; toUserName: string; senderNewBalance: number }>(
+    `/admin/user/${fromUserId}/gift-points`, { recipientReferralCode, amount, reason }
+  ).then(r => r.data)
+
+export const getDailyStats = (userId: string, days = 7) =>
+  api.get<DailyStat[]>(`/admin/user/${userId}/daily-stats?days=${days}`).then(r => r.data)
+
+export const getWhoSwipedUser = (userId: string, action = 'ALL', limit = 100) =>
+  api.get<StatUser[]>(`/admin/user/${userId}/who-swiped?action=${action}&limit=${limit}`).then(r => r.data)
+
+export const getSessionStats = (userId: string, days = 7) =>
+  api.get<SessionDailyStat[]>(`/admin/user/${userId}/session-stats?days=${days}`).then(r => r.data)
+
+export const getTopSessionUsers = (days = 30, limit = 10) =>
+  api.get<TopSessionUser[]>(`/admin/sessions/top-users?days=${days}&limit=${limit}`).then(r => r.data)
+
+// Real-time SSE stream for admin chat — uses fetch (not EventSource) so Authorization header works
+export const createChatStream = (
+  conversationId: string,
+  onMessage: (msg: Record<string, unknown>) => void
+): (() => void) => {
+  const token = localStorage.getItem('admin_token')
+  const controller = new AbortController()
+
+  ;(async () => {
+    try {
+      const response = await fetch(`/api/admin/chats/${conversationId}/stream`, {
+        headers: { Authorization: `Bearer ${token || ''}` },
+        signal: controller.signal,
+      })
+      if (!response.ok || !response.body) return
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        // SSE format: "data: {...}\n\n"
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() ?? ''
+        for (const part of parts) {
+          const line = part.split('\n').find(l => l.startsWith('data:'))
+          if (line) {
+            try { onMessage(JSON.parse(line.slice(5).trim())) } catch { /* ignore */ }
+          }
+        }
+      }
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name !== 'AbortError') console.warn('Chat SSE disconnected', e.message)
+    }
+  })()
+
+  return () => controller.abort()
+}
 
 // Auth — calls existing auth-service
 export const loginAdmin = (mobile: string, otp: string) =>

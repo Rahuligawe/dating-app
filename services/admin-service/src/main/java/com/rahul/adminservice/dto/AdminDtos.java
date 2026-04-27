@@ -104,6 +104,8 @@ public class AdminDtos {
         private long moodCommentsReceived;
         // Points wallet
         private double pointsBalance;
+        // Referral
+        private String referralCode;
     }
 
     // ── Mood Post ─────────────────────────────────────────────────────────────
@@ -195,12 +197,74 @@ public class AdminDtos {
         private String createdAt;
     }
 
-    // ── Reward Points Request (admin → user) ──────────────────────────────────
+    // ── Reward / Remove Points Request ───────────────────────────────────────
 
     @Data @NoArgsConstructor @AllArgsConstructor
     public static class RewardPointsRequest {
         private int    amount;
         private String reason;
+    }
+
+    // ── Gift Points Request (from one user to another via referral code) ──────
+
+    @Data @NoArgsConstructor @AllArgsConstructor
+    public static class GiftPointsRequest {
+        private String recipientReferralCode;
+        private int    amount;
+        private String reason;
+    }
+
+    // ── User Lookup (by referral code) ────────────────────────────────────────
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class UserLookup {
+        private String  userId;
+        private String  name;
+        private String  referralCode;
+        private boolean found;
+    }
+
+    // ── Daily Activity Stat ───────────────────────────────────────────────────
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class DailyStat {
+        private String date;
+        private long   swipesGiven;
+        private long   likesGiven;
+        private long   dislikesGiven;
+        private long   likesReceived;   // others swiped LIKE on this user
+        private long   dislikesReceived;
+        private long   matchesMade;
+    }
+
+    // ── Stat User Entry (who liked/disliked/swiped this user) ────────────────
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class StatUser {
+        private String userId;
+        private String name;
+        private String action;
+        private String createdAt;
+    }
+
+    // ── Session Stats (per-day app usage for one user) ───────────────────────
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class SessionDailyStat {
+        private String date;
+        private long   sessions;
+        private long   totalMinutes;
+        private long   avgMinutesPerSession;
+    }
+
+    // ── Top Session Users (for dashboard) ─────────────────────────────────────
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class TopSessionUser {
+        private String userId;
+        private String name;
+        private long   totalMinutes;
+        private long   sessions;
     }
 
     // ── Ad Impression (inbound from Android app) ──────────────────────────────
