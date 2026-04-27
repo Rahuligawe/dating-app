@@ -155,7 +155,7 @@ services:
       - .env
     environment:
       MONGODB_URL: ${MONGODB_URI}
-      REDIS_URL: redis://busy_jemison:6379
+      REDIS_URL: ${REDIS_URL}
       JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
@@ -326,6 +326,7 @@ services:
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       REDIS_URL: ${REDIS_URL}
+      CHAT_SERVICE_URL: http://dating-chat:8085
       JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
