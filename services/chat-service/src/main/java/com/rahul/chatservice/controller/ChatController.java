@@ -92,6 +92,21 @@ public class ChatController {
         return ResponseEntity.ok(chatService.getConversationSummary(conversationId, userId));
     }
 
+    // Internal: Admin dashboard calls this to view a user's conversations
+    @GetMapping("/internal/admin/user/{userId}/conversations")
+    public ResponseEntity<List<Conversation>> getAdminUserConversations(
+            @PathVariable String userId) {
+        return ResponseEntity.ok(chatService.getConversations(userId));
+    }
+
+    // Internal: Admin dashboard calls this to view full conversation history
+    @GetMapping("/internal/admin/conversations/{conversationId}/messages")
+    public ResponseEntity<List<Message>> getAdminConversationMessages(
+            @PathVariable String conversationId,
+            @RequestParam(defaultValue = "200") int limit) {
+        return ResponseEntity.ok(chatService.getAdminMessages(conversationId, limit));
+    }
+
     @GetMapping("/health")
     public ResponseEntity<Map<String, String>> health() {
         return ResponseEntity.ok(

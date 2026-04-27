@@ -155,7 +155,7 @@ services:
       - .env
     environment:
       MONGODB_URL: ${MONGODB_URI}
-      REDIS_URL: redis://busy_jemison:6379
+      REDIS_URL: ${REDIS_URL}
       JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
@@ -291,6 +291,19 @@ services:
       - dating-network
     restart: unless-stopped
 
+  admin-dashboard:
+    build:
+      context: admin-dashboard
+      dockerfile: Dockerfile
+    container_name: dating-admin-dashboard
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+    networks:
+      - dating-network
+    restart: unless-stopped
+
   admin-service:
     build:
       context: .
@@ -313,6 +326,8 @@ services:
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       REDIS_URL: ${REDIS_URL}
+      CHAT_SERVICE_URL: http://dating-chat:8085
+      SUBSCRIPTION_SERVICE_URL: http://dating-subscription:8091
       JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
