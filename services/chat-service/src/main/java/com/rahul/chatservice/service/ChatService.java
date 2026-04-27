@@ -200,6 +200,13 @@ public class ChatService {
                 .countByConversationIdAndSeenFalseAndSenderIdNot(conversationId, userId);
     }
 
+    // ─── Admin: Get Full Conversation (no side effects) ───────────────────────
+
+    public List<Message> getAdminMessages(String conversationId, int limit) {
+        return messageRepository.findByConversationIdOrderBySentAtDesc(
+                conversationId, PageRequest.of(0, limit));
+    }
+
     public ConversationSummaryResponse getConversationSummary(
             String conversationId, String userId) {
         Conversation conv = conversationRepository.findById(conversationId).orElse(null);

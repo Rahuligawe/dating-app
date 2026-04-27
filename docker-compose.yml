@@ -327,6 +327,7 @@ services:
       DB_PASS: ${DB_PASS}
       REDIS_URL: ${REDIS_URL}
       CHAT_SERVICE_URL: http://dating-chat:8085
+      SUBSCRIPTION_SERVICE_URL: http://dating-subscription:8091
       JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
     networks:
       - dating-network
