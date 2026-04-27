@@ -92,6 +92,13 @@ public class ChatController {
         return ResponseEntity.ok(chatService.getConversationSummary(conversationId, userId));
     }
 
+    // Internal: Admin dashboard calls this to view a user's conversations
+    @GetMapping("/internal/admin/user/{userId}/conversations")
+    public ResponseEntity<List<Conversation>> getAdminUserConversations(
+            @PathVariable String userId) {
+        return ResponseEntity.ok(chatService.getConversations(userId));
+    }
+
     @GetMapping("/health")
     public ResponseEntity<Map<String, String>> health() {
         return ResponseEntity.ok(

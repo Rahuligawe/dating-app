@@ -291,6 +291,19 @@ services:
       - dating-network
     restart: unless-stopped
 
+  admin-dashboard:
+    build:
+      context: admin-dashboard
+      dockerfile: Dockerfile
+    container_name: dating-admin-dashboard
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+    networks:
+      - dating-network
+    restart: unless-stopped
+
   admin-service:
     build:
       context: .
