@@ -1,0 +1,63 @@
+import { NavLink, useNavigate } from 'react-router-dom'
+import { LayoutDashboard, Users, DollarSign, LogOut, Heart } from 'lucide-react'
+
+const NAV = [
+  { to: '/',        label: 'Dashboard',       icon: LayoutDashboard },
+  { to: '/users',   label: 'User Management', icon: Users },
+  { to: '/revenue', label: 'Revenue',         icon: DollarSign },
+]
+
+export default function Sidebar() {
+  const navigate = useNavigate()
+
+  function logout() {
+    localStorage.removeItem('admin_token')
+    localStorage.removeItem('admin_role')
+    navigate('/login')
+  }
+
+  return (
+    <aside className="w-56 bg-[#1E1E35] flex flex-col h-full shrink-0">
+      {/* Logo */}
+      <div className="flex items-center gap-2 px-5 py-5 border-b border-white/10">
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center">
+          <Heart size={16} className="text-white fill-white" />
+        </div>
+        <span className="text-white font-bold text-lg tracking-wide">AuraLink</span>
+        <span className="text-xs text-purple-300 ml-auto font-medium">Admin</span>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 px-3 py-4 space-y-1">
+        {NAV.map(({ to, label, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === '/'}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                isActive
+                  ? 'bg-gradient-to-r from-pink-600 to-purple-700 text-white shadow-lg'
+                  : 'text-slate-300 hover:bg-white/10 hover:text-white'
+              }`
+            }
+          >
+            <Icon size={17} />
+            {label}
+          </NavLink>
+        ))}
+      </nav>
+
+      {/* Logout */}
+      <div className="px-3 pb-5">
+        <button
+          onClick={logout}
+          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-white/10 hover:text-white transition-all"
+        >
+          <LogOut size={17} />
+          Logout
+        </button>
+      </div>
+    </aside>
+  )
+}
