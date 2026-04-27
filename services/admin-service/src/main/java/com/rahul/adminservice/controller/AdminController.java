@@ -2,10 +2,13 @@ package com.rahul.adminservice.controller;
 
 import com.rahul.adminservice.dto.AdminDtos.*;
 import com.rahul.adminservice.service.AdminService;
+import com.rahul.adminservice.service.ChatStreamService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
@@ -15,7 +18,8 @@ import java.util.Map;
 @CrossOrigin(origins = "*", allowedHeaders = "*")
 public class AdminController {
 
-    private final AdminService adminService;
+    private final AdminService     adminService;
+    private final ChatStreamService chatStreamService;
 
     // ── Auth check — called at the top of every admin endpoint ────────────────
 
@@ -151,6 +155,23 @@ public class AdminController {
         return ResponseEntity.ok(adminService.getUserPostEngagements(userId, limit));
     }
 
+    // SSE stream — real-time chat updates via Redis pub/sub (no polling)
+    @GetMapping(value = "/api/admin/chats/{conversationId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamChatMessages(
+            @PathVariable String conversationId,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        SseEmitter emitter = new SseEmitter(300_000L); // 5-minute timeout
+        chatStreamService.addEmitter(conversationId, emitter);
+        emitter.onCompletion(() -> chatStreamService.removeEmitter(conversationId, emitter));
+        emitter.onTimeout(() -> {
+            chatStreamService.removeEmitter(conversationId, emitter);
+            emitter.complete();
+        });
+        emitter.onError(e -> chatStreamService.removeEmitter(conversationId, emitter));
+        return emitter;
+    }
+
     @GetMapping("/api/admin/chats/{conversationId}/messages")
     public ResponseEntity<List<ChatMessage>> getChatMessages(
             @PathVariable String conversationId,
@@ -167,6 +188,70 @@ public class AdminController {
             HttpServletRequest req) {
         requireAdmin(req);
         return ResponseEntity.ok(adminService.giveRewardPoints(userId, request.getAmount(), request.getReason()));
+    }
+
+    @PostMapping("/api/admin/user/{userId}/remove-points")
+    public ResponseEntity<Map<String, Object>> removePoints(
+            @PathVariable String userId,
+            @RequestBody RewardPointsRequest request,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        return ResponseEntity.ok(adminService.removePoints(userId, request.getAmount(), request.getReason()));
+    }
+
+    @GetMapping("/api/admin/user/by-referral/{code}")
+    public ResponseEntity<UserLookup> getUserByReferralCode(
+            @PathVariable String code,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        return ResponseEntity.ok(adminService.getUserByReferralCode(code));
+    }
+
+    @PostMapping("/api/admin/user/{fromUserId}/gift-points")
+    public ResponseEntity<Map<String, Object>> giftPoints(
+            @PathVariable String fromUserId,
+            @RequestBody GiftPointsRequest request,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        return ResponseEntity.ok(adminService.giftPoints(
+                fromUserId, request.getRecipientReferralCode(), request.getAmount(), request.getReason()));
+    }
+
+    @GetMapping("/api/admin/user/{userId}/daily-stats")
+    public ResponseEntity<List<DailyStat>> getDailyStats(
+            @PathVariable String userId,
+            @RequestParam(defaultValue = "7") int days,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        return ResponseEntity.ok(adminService.getDailyStats(userId, days));
+    }
+
+    @GetMapping("/api/admin/user/{userId}/who-swiped")
+    public ResponseEntity<List<StatUser>> getWhoSwipedUser(
+            @PathVariable String userId,
+            @RequestParam(defaultValue = "ALL") String action,
+            @RequestParam(defaultValue = "100") int limit,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        return ResponseEntity.ok(adminService.getWhoSwipedUser(userId, action, limit));
+    }
+
+    @GetMapping("/api/admin/user/{userId}/session-stats")
+    public ResponseEntity<List<SessionDailyStat>> getUserSessionStats(
+            @PathVariable String userId,
+            @RequestParam(defaultValue = "7") int days,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        return ResponseEntity.ok(adminService.getUserSessionStats(userId, days));
+    }
+
+    @GetMapping("/api/admin/sessions/top-users")
+    public ResponseEntity<List<TopSessionUser>> getTopSessionUsers(
+            @RequestParam(defaultValue = "30") int days,
+            @RequestParam(defaultValue = "10") int limit,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        return ResponseEntity.ok(adminService.getTopSessionUsers(days, limit));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

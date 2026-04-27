@@ -33,6 +33,7 @@ public class AdminService {
     private final JdbcTemplate moodJdbc;
     private final RedisTemplate<String, Object> redisTemplate;
     private final AdImpressionRepository adRepo;
+    private final com.rahul.adminservice.repository.AppSessionRepository sessionRepo;
 
     @Value("${chat.service.url:http://chat-service:8085}")
     private String chatServiceUrl;
@@ -54,7 +55,8 @@ public class AdminService {
             @Qualifier("matchJdbc") JdbcTemplate matchJdbc,
             @Qualifier("moodJdbc")  JdbcTemplate moodJdbc,
             RedisTemplate<String, Object> redisTemplate,
-            AdImpressionRepository adRepo) {
+            AdImpressionRepository adRepo,
+            com.rahul.adminservice.repository.AppSessionRepository sessionRepo) {
         this.userJdbc   = userJdbc;
         this.authJdbc   = authJdbc;
         this.subJdbc    = subJdbc;
@@ -63,6 +65,7 @@ public class AdminService {
         this.moodJdbc   = moodJdbc;
         this.redisTemplate = redisTemplate;
         this.adRepo     = adRepo;
+        this.sessionRepo = sessionRepo;
     }
 
     // ── Dashboard Stats ─────────────────────────────────────────────────────────
@@ -245,6 +248,13 @@ public class AdminService {
         // Points wallet balance
         double pointsBalance = qDouble(subJdbc, "SELECT balance FROM points_wallets WHERE user_id = ?", userId);
 
+        // Referral code
+        String referralCode = "";
+        try {
+            referralCode = subJdbc.queryForObject(
+                    "SELECT code FROM referral_codes WHERE user_id = ?", String.class, userId);
+        } catch (Exception ignored) {}
+
         return UserDetail.builder()
                 .userId(userId)
                 .name((String) profile.get("name"))
@@ -265,6 +275,7 @@ public class AdminService {
                 .moodDislikesReceived(moodDislikes)
                 .moodCommentsReceived(moodComments)
                 .pointsBalance(pointsBalance)
+                .referralCode(referralCode)
                 .build();
     }
 
@@ -363,7 +374,7 @@ public class AdminService {
         List<String> cols = Collections.emptyList();
         try {
             cols = matchJdbc.queryForList(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'matches' AND table_schema = current_schema()",
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'matches'",
                     String.class);
         } catch (Exception e) {
             log.warn("Could not read information_schema for matches: {}", e.getMessage());
@@ -372,7 +383,7 @@ public class AdminService {
         String u1Col  = cols.contains("user1_id")   ? "user1_id"   : cols.contains("user1id")   ? "user1id"   : "\"user1Id\"";
         String u2Col  = cols.contains("user2_id")   ? "user2_id"   : cols.contains("user2id")   ? "user2id"   : "\"user2Id\"";
         String atCol  = cols.contains("matched_at") ? "matched_at" : cols.contains("matchedat") ? "matchedat" : "\"matchedAt\"";
-        String acCol  = cols.contains("is_active")  ? "is_active"  : "\"isActive\"";
+        String acCol  = cols.contains("is_active") ? "is_active" : cols.contains("isactive") ? "isactive" : "\"isActive\"";
 
         String sql = "SELECT id, " + u1Col + " AS u1, " + u2Col + " AS u2, "
                    + atCol + " AS mat, " + acCol + " AS active "
@@ -531,6 +542,177 @@ public class AdminService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to give reward points: " + e.getMessage());
         }
+    }
+
+    // ── Remove Points (deduct from user) ──────────────────────────────────────────
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> removePoints(String userId, int amount, String reason) {
+        if (amount <= 0) throw new IllegalArgumentException("Amount must be > 0");
+        String url = subscriptionServiceUrl + "/api/subscriptions/admin/bonus-points";
+        Map<String, Object> body = Map.of(
+                "userId", userId,
+                "amount", -(double) amount,
+                "reason", reason != null && !reason.isBlank() ? reason : "Admin deduction");
+        try {
+            ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(
+                    url, HttpMethod.POST,
+                    new org.springframework.http.HttpEntity<>(body),
+                    new ParameterizedTypeReference<>() {});
+            return resp.getBody() != null ? resp.getBody()
+                    : Map.of("success", false, "error", "No response");
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to remove points: " + e.getMessage());
+        }
+    }
+
+    // ── Look Up User by Referral Code ─────────────────────────────────────────────
+
+    public UserLookup getUserByReferralCode(String code) {
+        String url = subscriptionServiceUrl + "/api/subscriptions/referral/user-by-code/" + code.toUpperCase().trim();
+        try {
+            ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(
+                    url, HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+            if (resp.getBody() == null || !Boolean.TRUE.equals(resp.getBody().get("found")))
+                return UserLookup.builder().found(false).build();
+            Map<String, Object> body = resp.getBody();
+            return UserLookup.builder()
+                    .found(true)
+                    .userId(Objects.toString(body.get("userId"), ""))
+                    .name(Objects.toString(body.get("name"), ""))
+                    .referralCode(code.toUpperCase())
+                    .build();
+        } catch (Exception e) {
+            log.warn("getUserByReferralCode failed: {}", e.getMessage());
+            return UserLookup.builder().found(false).build();
+        }
+    }
+
+    // ── Gift Points (from one user to another via referral code) ──────────────────
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> giftPoints(String fromUserId, String recipientReferralCode, int amount, String reason) {
+        if (amount <= 0) throw new IllegalArgumentException("Amount must be > 0");
+        UserLookup recipient = getUserByReferralCode(recipientReferralCode);
+        if (!recipient.isFound())
+            throw new RuntimeException("Referral code not found: " + recipientReferralCode);
+
+        String url = subscriptionServiceUrl + "/api/subscriptions/admin/bonus-points";
+        String giftReason = reason != null && !reason.isBlank() ? reason : "Gift from admin";
+
+        // Deduct from sender
+        restTemplate.exchange(url, HttpMethod.POST,
+                new org.springframework.http.HttpEntity<>(Map.of(
+                        "userId", fromUserId, "amount", -(double) amount,
+                        "reason", "Gifted " + amount + " pts to " + recipient.getName())),
+                new ParameterizedTypeReference<>() {});
+
+        // Credit to recipient
+        ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(url, HttpMethod.POST,
+                new org.springframework.http.HttpEntity<>(Map.of(
+                        "userId", recipient.getUserId(), "amount", (double) amount,
+                        "reason", giftReason + " from admin")),
+                new ParameterizedTypeReference<>() {});
+
+        double senderBalance = qDouble(subJdbc, "SELECT balance FROM points_wallets WHERE user_id = ?", fromUserId);
+        return Map.of(
+                "success",          true,
+                "gifted",           amount,
+                "toUserId",         recipient.getUserId(),
+                "toUserName",       recipient.getName(),
+                "senderNewBalance", senderBalance,
+                "recipientNewBalance", resp.getBody() != null ? resp.getBody().getOrDefault("newBalance", 0) : 0
+        );
+    }
+
+    // ── Daily Activity Stats ──────────────────────────────────────────────────────
+
+    public List<DailyStat> getDailyStats(String userId, int days) {
+        List<DailyStat> result = new ArrayList<>();
+        for (int i = days - 1; i >= 0; i--) {
+            String date = LocalDate.now().minusDays(i).toString();
+            long swipesGiven    = qLong(swipeJdbc, "SELECT COUNT(*) FROM swipes WHERE from_user_id = ? AND created_at::date = ?::date", userId, date);
+            long likesGiven     = qLong(swipeJdbc, "SELECT COUNT(*) FROM swipes WHERE from_user_id = ? AND action = 'LIKE' AND created_at::date = ?::date", userId, date);
+            long dislikesGiven  = qLong(swipeJdbc, "SELECT COUNT(*) FROM swipes WHERE from_user_id = ? AND action = 'DISLIKE' AND created_at::date = ?::date", userId, date);
+            long likesRx        = qLong(swipeJdbc, "SELECT COUNT(*) FROM swipes WHERE to_user_id = ? AND action = 'LIKE' AND created_at::date = ?::date", userId, date);
+            long dislikesRx     = qLong(swipeJdbc, "SELECT COUNT(*) FROM swipes WHERE to_user_id = ? AND action = 'DISLIKE' AND created_at::date = ?::date", userId, date);
+            long matchesMade    = qLong(matchJdbc, "SELECT COUNT(*) FROM matches WHERE (user1_id = ? OR user2_id = ?) AND matched_at::date = ?::date", userId, userId, date);
+            result.add(DailyStat.builder()
+                    .date(date).swipesGiven(swipesGiven).likesGiven(likesGiven)
+                    .dislikesGiven(dislikesGiven).likesReceived(likesRx)
+                    .dislikesReceived(dislikesRx).matchesMade(matchesMade)
+                    .build());
+        }
+        return result;
+    }
+
+    // ── Who Swiped This User ──────────────────────────────────────────────────────
+
+    public List<StatUser> getWhoSwipedUser(String userId, String action, int limit) {
+        List<Object> params = new ArrayList<>(List.of(userId));
+        String sql = "SELECT from_user_id, action, created_at FROM swipes WHERE to_user_id = ?";
+        if (action != null && !action.isBlank() && !"ALL".equals(action)) {
+            sql += " AND action = ?"; params.add(action);
+        }
+        sql += " ORDER BY created_at DESC LIMIT ?"; params.add(limit);
+
+        List<StatUser> list = swipeJdbc.query(sql, params.toArray(), (rs, rn) -> StatUser.builder()
+                .userId(rs.getString("from_user_id"))
+                .action(rs.getString("action"))
+                .createdAt(Objects.toString(rs.getObject("created_at"), ""))
+                .build());
+
+        Set<String> ids = list.stream().map(StatUser::getUserId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<String, String> names = batchFetchNames(ids);
+        list.forEach(s -> s.setName(names.getOrDefault(s.getUserId(), s.getUserId())));
+        return list;
+    }
+
+    // ── Session Stats (per-user daily usage) ─────────────────────────────────────
+
+    public List<SessionDailyStat> getUserSessionStats(String userId, int days) {
+        java.time.LocalDateTime since = LocalDate.now().minusDays(days).atStartOfDay();
+        List<com.rahul.adminservice.entity.AppSession> sessions = sessionRepo.findByUserIdSince(userId, since);
+
+        Map<String, List<com.rahul.adminservice.entity.AppSession>> byDate = sessions.stream()
+                .filter(s -> s.getDurationSeconds() != null)
+                .collect(Collectors.groupingBy(s -> s.getSessionStart().toLocalDate().toString()));
+
+        List<SessionDailyStat> result = new ArrayList<>();
+        for (int i = days - 1; i >= 0; i--) {
+            String date = LocalDate.now().minusDays(i).toString();
+            List<com.rahul.adminservice.entity.AppSession> daySessions = byDate.getOrDefault(date, List.of());
+            long totalSec = daySessions.stream().mapToLong(s -> s.getDurationSeconds()).sum();
+            result.add(SessionDailyStat.builder()
+                    .date(date)
+                    .sessions(daySessions.size())
+                    .totalMinutes(totalSec / 60)
+                    .avgMinutesPerSession(daySessions.isEmpty() ? 0 : (totalSec / 60) / daySessions.size())
+                    .build());
+        }
+        return result;
+    }
+
+    // ── Top Session Users (for dashboard) ────────────────────────────────────────
+
+    public List<TopSessionUser> getTopSessionUsers(int days, int limit) {
+        java.time.LocalDateTime since = LocalDate.now().minusDays(days).atStartOfDay();
+        List<Object[]> rows = sessionRepo.findTopUsersByDuration(since, limit);
+        List<TopSessionUser> result = new ArrayList<>();
+        Set<String> ids = rows.stream().map(r -> (String) r[0]).collect(Collectors.toSet());
+        Map<String, String> names = batchFetchNames(ids);
+        for (Object[] row : rows) {
+            String uid = (String) row[0];
+            long totalSec = row[1] instanceof Number ? ((Number) row[1]).longValue() : 0L;
+            long cnt      = row[2] instanceof Number ? ((Number) row[2]).longValue() : 0L;
+            result.add(TopSessionUser.builder()
+                    .userId(uid)
+                    .name(names.getOrDefault(uid, uid))
+                    .totalMinutes(totalSec / 60)
+                    .sessions(cnt)
+                    .build());
+        }
+        return result;
     }
 
     // ── Ad Tracking ──────────────────────────────────────────────────────────────
