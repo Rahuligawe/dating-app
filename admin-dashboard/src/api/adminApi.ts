@@ -114,6 +114,7 @@ export interface PostInteraction {
   moodId: string
   type: 'LIKE' | 'DISLIKE' | 'COMMENT'
   comment?: string
+  commentId?: string
   createdAt: string
   moodOwnerUserId: string
   moodOwnerName?: string
@@ -156,6 +157,7 @@ export interface PostEngagement {
   interactorName?: string
   type: 'LIKE' | 'DISLIKE' | 'COMMENT'
   comment?: string
+  commentId?: string
   createdAt: string
 }
 
@@ -304,6 +306,15 @@ export const createChatStream = (
 
   return () => controller.abort()
 }
+
+export const deleteUser = (userId: string) =>
+  api.delete(`/admin/user/${userId}`).then(r => r.data)
+
+export const createUser = (name: string, mobile: string) =>
+  api.post<UserSummary>('/admin/users', { name, mobile }).then(r => r.data)
+
+export const deleteComment = (commentId: string) =>
+  api.delete(`/admin/comment/${commentId}`).then(r => r.data)
 
 // Auth — calls existing auth-service
 export const loginAdmin = (mobile: string, otp: string) =>

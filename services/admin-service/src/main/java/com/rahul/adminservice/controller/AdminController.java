@@ -245,6 +245,32 @@ public class AdminController {
         return ResponseEntity.ok(adminService.getUserSessionStats(userId, days));
     }
 
+    @DeleteMapping("/api/admin/user/{userId}")
+    public ResponseEntity<Map<String, String>> deleteUser(
+            @PathVariable String userId,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        adminService.deleteUser(userId);
+        return ResponseEntity.ok(Map.of("status", "deleted", "userId", userId));
+    }
+
+    @PostMapping("/api/admin/users")
+    public ResponseEntity<UserSummary> createUser(
+            @RequestBody CreateUserRequest request,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        return ResponseEntity.ok(adminService.createUser(request.getName(), request.getMobile()));
+    }
+
+    @DeleteMapping("/api/admin/comment/{commentId}")
+    public ResponseEntity<Map<String, String>> deleteComment(
+            @PathVariable String commentId,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        adminService.deleteComment(commentId);
+        return ResponseEntity.ok(Map.of("status", "deleted", "commentId", commentId));
+    }
+
     @GetMapping("/api/admin/sessions/top-users")
     public ResponseEntity<List<TopSessionUser>> getTopSessionUsers(
             @RequestParam(defaultValue = "30") int days,
