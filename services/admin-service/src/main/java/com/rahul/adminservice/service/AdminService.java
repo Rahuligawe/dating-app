@@ -31,6 +31,10 @@ public class AdminService {
     private final JdbcTemplate swipeJdbc;
     private final JdbcTemplate matchJdbc;
     private final JdbcTemplate moodJdbc;
+    // Write-enabled (no read-only flag) — for admin mutations
+    private final JdbcTemplate writeUserJdbc;
+    private final JdbcTemplate writeAuthJdbc;
+    private final JdbcTemplate writeMoodJdbc;
     private final RedisTemplate<String, Object> redisTemplate;
     private final AdImpressionRepository adRepo;
     private final com.rahul.adminservice.repository.AppSessionRepository sessionRepo;
@@ -48,24 +52,30 @@ public class AdminService {
     private static final double ULTRA_PRICE_INR   = 599.0;
 
     public AdminService(
-            @Qualifier("userJdbc")  JdbcTemplate userJdbc,
-            @Qualifier("authJdbc")  JdbcTemplate authJdbc,
-            @Qualifier("subJdbc")   JdbcTemplate subJdbc,
-            @Qualifier("swipeJdbc") JdbcTemplate swipeJdbc,
-            @Qualifier("matchJdbc") JdbcTemplate matchJdbc,
-            @Qualifier("moodJdbc")  JdbcTemplate moodJdbc,
+            @Qualifier("userJdbc")      JdbcTemplate userJdbc,
+            @Qualifier("authJdbc")      JdbcTemplate authJdbc,
+            @Qualifier("subJdbc")       JdbcTemplate subJdbc,
+            @Qualifier("swipeJdbc")     JdbcTemplate swipeJdbc,
+            @Qualifier("matchJdbc")     JdbcTemplate matchJdbc,
+            @Qualifier("moodJdbc")      JdbcTemplate moodJdbc,
+            @Qualifier("writeUserJdbc") JdbcTemplate writeUserJdbc,
+            @Qualifier("writeAuthJdbc") JdbcTemplate writeAuthJdbc,
+            @Qualifier("writeMoodJdbc") JdbcTemplate writeMoodJdbc,
             RedisTemplate<String, Object> redisTemplate,
             AdImpressionRepository adRepo,
             com.rahul.adminservice.repository.AppSessionRepository sessionRepo) {
-        this.userJdbc   = userJdbc;
-        this.authJdbc   = authJdbc;
-        this.subJdbc    = subJdbc;
-        this.swipeJdbc  = swipeJdbc;
-        this.matchJdbc  = matchJdbc;
-        this.moodJdbc   = moodJdbc;
+        this.userJdbc      = userJdbc;
+        this.authJdbc      = authJdbc;
+        this.subJdbc       = subJdbc;
+        this.swipeJdbc     = swipeJdbc;
+        this.matchJdbc     = matchJdbc;
+        this.moodJdbc      = moodJdbc;
+        this.writeUserJdbc = writeUserJdbc;
+        this.writeAuthJdbc = writeAuthJdbc;
+        this.writeMoodJdbc = writeMoodJdbc;
         this.redisTemplate = redisTemplate;
-        this.adRepo     = adRepo;
-        this.sessionRepo = sessionRepo;
+        this.adRepo        = adRepo;
+        this.sessionRepo   = sessionRepo;
     }
 
     // ── Dashboard Stats ─────────────────────────────────────────────────────────
@@ -234,9 +244,9 @@ public class AdminService {
         long dislikes   = qLong(swipeJdbc, "SELECT COUNT(*) FROM swipes WHERE from_user_id = ? AND action = 'DISLIKE'", userId);
         long superLikes = qLong(swipeJdbc, "SELECT COUNT(*) FROM swipes WHERE from_user_id = ? AND action = 'SUPER_LIKE'", userId);
 
-        // Match stats
+        // Match stats — count ALL matches (active + unmatched) — avoids column name uncertainty
         long matchCount = qLong(matchJdbc,
-                "SELECT COUNT(*) FROM matches WHERE (user1_id = ? OR user2_id = ?) AND is_active = true",
+                "SELECT COUNT(*) FROM matches WHERE (user1_id = ? OR user2_id = ?)",
                 userId, userId);
 
         // Mood stats
@@ -252,7 +262,7 @@ public class AdminService {
         String referralCode = "";
         try {
             referralCode = subJdbc.queryForObject(
-                    "SELECT code FROM referral_codes WHERE user_id = ?", String.class, userId);
+                    "SELECT code FROM referral_codes WHERE user_id::text = ?", String.class, userId);
         } catch (Exception ignored) {}
 
         return UserDetail.builder()
@@ -336,17 +346,17 @@ public class AdminService {
 
     public List<PostInteraction> getUserPostInteractions(String userId, int limit) {
         String sql =
-            "SELECT mood_id, 'LIKE' AS type, NULL AS comment, created_at, " +
+            "SELECT mood_id, 'LIKE' AS type, NULL AS comment, NULL::text AS comment_id, created_at, " +
             "       (SELECT user_id FROM mood_status WHERE id::text = ml.mood_id LIMIT 1) AS owner_id, " +
             "       (SELECT description FROM mood_status WHERE id::text = ml.mood_id LIMIT 1) AS mood_desc " +
             "FROM mood_likes ml WHERE user_id = ? " +
             "UNION ALL " +
-            "SELECT mood_id, 'DISLIKE' AS type, NULL AS comment, created_at, " +
+            "SELECT mood_id, 'DISLIKE' AS type, NULL AS comment, NULL::text AS comment_id, created_at, " +
             "       (SELECT user_id FROM mood_status WHERE id::text = md.mood_id LIMIT 1) AS owner_id, " +
             "       (SELECT description FROM mood_status WHERE id::text = md.mood_id LIMIT 1) AS mood_desc " +
             "FROM mood_dislikes md WHERE user_id = ? " +
             "UNION ALL " +
-            "SELECT mood_id, 'COMMENT' AS type, comment, created_at, " +
+            "SELECT mood_id, 'COMMENT' AS type, comment, mc.id::text AS comment_id, created_at, " +
             "       (SELECT user_id FROM mood_status WHERE id::text = mc.mood_id LIMIT 1) AS owner_id, " +
             "       (SELECT description FROM mood_status WHERE id::text = mc.mood_id LIMIT 1) AS mood_desc " +
             "FROM mood_comments mc WHERE user_id = ? " +
@@ -357,6 +367,7 @@ public class AdminService {
                         .moodId(rs.getString("mood_id"))
                         .type(rs.getString("type"))
                         .comment(rs.getString("comment"))
+                        .commentId(rs.getString("comment_id"))
                         .createdAt(Objects.toString(rs.getObject("created_at"), ""))
                         .moodOwnerUserId(rs.getString("owner_id"))
                         .moodDescription(rs.getString("mood_desc"))
@@ -490,17 +501,17 @@ public class AdminService {
     public List<PostEngagement> getUserPostEngagements(String userId, int limit) {
         String sql =
             "SELECT ms.id::text AS post_id, ms.mood_type, ms.description, " +
-            "       ml.user_id AS interactor_id, 'LIKE' AS type, NULL::text AS comment, ml.created_at " +
+            "       ml.user_id AS interactor_id, 'LIKE' AS type, NULL::text AS comment, NULL::text AS comment_id, ml.created_at " +
             "FROM mood_status ms JOIN mood_likes ml ON ml.mood_id = ms.id::text " +
             "WHERE ms.user_id = ? " +
             "UNION ALL " +
             "SELECT ms.id::text, ms.mood_type, ms.description, " +
-            "       md.user_id, 'DISLIKE', NULL::text, md.created_at " +
+            "       md.user_id, 'DISLIKE', NULL::text, NULL::text, md.created_at " +
             "FROM mood_status ms JOIN mood_dislikes md ON md.mood_id = ms.id::text " +
             "WHERE ms.user_id = ? " +
             "UNION ALL " +
             "SELECT ms.id::text, ms.mood_type, ms.description, " +
-            "       mc.user_id, 'COMMENT', mc.comment, mc.created_at " +
+            "       mc.user_id, 'COMMENT', mc.comment, mc.id::text, mc.created_at " +
             "FROM mood_status ms JOIN mood_comments mc ON mc.mood_id = ms.id::text " +
             "WHERE ms.user_id = ? " +
             "ORDER BY created_at DESC LIMIT ?";
@@ -513,6 +524,7 @@ public class AdminService {
                         .interactorUserId(rs.getString("interactor_id"))
                         .type(rs.getString("type"))
                         .comment(rs.getString("comment"))
+                        .commentId(rs.getString("comment_id"))
                         .createdAt(Objects.toString(rs.getObject("created_at"), ""))
                         .build());
 
@@ -713,6 +725,50 @@ public class AdminService {
                     .build());
         }
         return result;
+    }
+
+    // ── Delete User (soft delete — sets is_active = false) ───────────────────────
+
+    public void deleteUser(String userId) {
+        writeUserJdbc.update("UPDATE user_profiles SET is_active = false WHERE id::text = ?", userId);
+        try { redisTemplate.delete("presence:" + userId); } catch (Exception ignored) {}
+    }
+
+    // ── Create User (admin-initiated — minimal profile) ───────────────────────────
+
+    public UserSummary createUser(String name, String mobile) {
+        String userId = UUID.randomUUID().toString();
+        try {
+            writeAuthJdbc.update(
+                "INSERT INTO auth_users (id, mobile, created_at) VALUES (?::uuid, ?, NOW()) ON CONFLICT DO NOTHING",
+                userId, mobile);
+        } catch (Exception e) {
+            log.warn("Could not insert auth user (non-fatal): {}", e.getMessage());
+        }
+        writeUserJdbc.update(
+            "INSERT INTO user_profiles (id, name, subscription_type, is_verified, is_active, created_at) " +
+            "VALUES (?::uuid, ?, 'FREE', false, true, NOW())",
+            userId, name);
+        return UserSummary.builder()
+                .userId(userId).name(name).subscriptionType("FREE")
+                .isVerified(false).isActive(true)
+                .registeredAt(LocalDateTime.now().toString())
+                .build();
+    }
+
+    // ── Delete Comment from a Mood Post ──────────────────────────────────────────
+
+    public void deleteComment(String commentId) {
+        // Decrement comment_count on parent post first
+        try {
+            writeMoodJdbc.update(
+                "UPDATE mood_status SET comment_count = GREATEST(0, comment_count - 1) " +
+                "WHERE id::text = (SELECT mood_id FROM mood_comments WHERE id::text = ? LIMIT 1)",
+                commentId);
+        } catch (Exception e) {
+            log.warn("Could not decrement comment_count: {}", e.getMessage());
+        }
+        writeMoodJdbc.update("DELETE FROM mood_comments WHERE id::text = ?", commentId);
     }
 
     // ── Ad Tracking ──────────────────────────────────────────────────────────────

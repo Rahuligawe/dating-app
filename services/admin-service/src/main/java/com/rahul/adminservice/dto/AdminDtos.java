@@ -140,6 +140,7 @@ public class AdminDtos {
         private String moodId;
         private String type;             // LIKE | DISLIKE | COMMENT
         private String comment;          // non-null only for COMMENT
+        private String commentId;        // non-null only for COMMENT — used for admin delete
         private String createdAt;
         private String moodOwnerUserId;  // who posted it
         private String moodOwnerName;    // resolved name
@@ -192,8 +193,9 @@ public class AdminDtos {
         private String postDescription;
         private String interactorUserId;
         private String interactorName;
-        private String type;      // LIKE | DISLIKE | COMMENT
+        private String type;       // LIKE | DISLIKE | COMMENT
         private String comment;
+        private String commentId;  // non-null only for COMMENT — used for admin delete
         private String createdAt;
     }
 
@@ -265,6 +267,14 @@ public class AdminDtos {
         private String name;
         private long   totalMinutes;
         private long   sessions;
+    }
+
+    // ── Create User (admin-initiated) ─────────────────────────────────────────
+
+    @Data @NoArgsConstructor @AllArgsConstructor
+    public static class CreateUserRequest {
+        private String name;
+        private String mobile;
     }
 
     // ── Ad Impression (inbound from Android app) ──────────────────────────────

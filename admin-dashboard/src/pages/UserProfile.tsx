@@ -4,14 +4,14 @@ import {
   getUserDetail, getUserPosts, getUserSwipes, getUserPostInteractions,
   getUserMatches, getUserChats, getUserPostEngagements, giveRewardPoints,
   getChatMessages, removePoints, getUserByReferralCode, giftPoints,
-  getDailyStats, getWhoSwipedUser, getSessionStats, createChatStream,
+  getDailyStats, getWhoSwipedUser, getSessionStats, createChatStream, deleteComment,
   UserDetail, MoodPost, SwipeActivity, PostInteraction, MatchInfo,
-  ChatSummary, PostEngagement, ChatMessage, DailyStat, StatUser, SessionDailyStat,
+  ChatSummary, PostEngagement, ChatMessage, DailyStat, SessionDailyStat,
 } from '../api/adminApi'
 import {
   ArrowLeft, Heart, HeartCrack, Zap, Users, FileText,
   ShieldCheck, Image, Coins, Send, MessageCircle,
-  ChevronDown, ChevronUp, X, TrendingUp, Gift, Minus,
+  ChevronDown, ChevronUp, X, TrendingUp, Gift, Minus, Trash2,
 } from 'lucide-react'
 
 const SORT_OPTIONS  = ['date', 'likes', 'dislikes', 'comments']
@@ -25,7 +25,31 @@ const ACTION_COLOR: Record<string, string> = {
 }
 
 type Tab = 'posts' | 'swipes' | 'interactions' | 'engagements' | 'matches' | 'chats'
-type RightPanel = null | 'liked-by' | 'disliked-by' | 'super-liked-by' | 'all-swiped'
+type RightPanel =
+  | null
+  | 'likes-given' | 'dislikes-given' | 'super-likes-given'
+  | 'matches' | 'mood-posts'
+  | 'liked-by' | 'disliked-by' | 'super-liked-by'
+
+type RightItem = {
+  id: string
+  label: string
+  sublabel?: string
+  badge?: string
+  badgeColor?: string
+  date?: string
+}
+
+const RIGHT_PANEL_TITLES: Record<NonNullable<RightPanel>, string> = {
+  'likes-given':       'People They Liked',
+  'dislikes-given':    'People They Disliked',
+  'super-likes-given': 'People They Super Liked',
+  'matches':           'Matches',
+  'mood-posts':        'Mood Posts',
+  'liked-by':          'People Who Liked Them',
+  'disliked-by':       'People Who Disliked Them',
+  'super-liked-by':    'People Who Super Liked Them',
+}
 
 export default function UserProfile() {
   const { id } = useParams<{ id: string }>()
@@ -38,18 +62,18 @@ export default function UserProfile() {
   const [engagements,  setEngagements]  = useState<PostEngagement[]>([])
   const [matches,      setMatches]      = useState<MatchInfo[]>([])
   const [chats,        setChats]        = useState<ChatSummary[]>([])
-  const [dailyStats,    setDailyStats]    = useState<DailyStat[]>([])
-  const [sessionStats,  setSessionStats]  = useState<SessionDailyStat[]>([])
-  const [tab,           setTab]           = useState<Tab>('posts')
+  const [dailyStats,   setDailyStats]   = useState<DailyStat[]>([])
+  const [sessionStats, setSessionStats] = useState<SessionDailyStat[]>([])
+  const [tab,          setTab]          = useState<Tab>('posts')
   const [postSort,     setPostSort]     = useState('date')
   const [swipeAction,  setSwipeAction]  = useState('ALL')
   const [selectedPhoto, setSelectedPhoto] = useState(0)
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState('')
 
-  // Right panel (who swiped this user)
-  const [rightPanel,      setRightPanel]      = useState<RightPanel>(null)
-  const [rightPanelUsers, setRightPanelUsers] = useState<StatUser[]>([])
+  // Right panel
+  const [rightPanel,        setRightPanel]        = useState<RightPanel>(null)
+  const [rightPanelItems,   setRightPanelItems]   = useState<RightItem[]>([])
   const [rightPanelLoading, setRightPanelLoading] = useState(false)
 
   // Chat expand state
@@ -58,12 +82,12 @@ export default function UserProfile() {
   const [chatMsgLoading, setChatMsgLoading] = useState<string | null>(null)
 
   // Reward points
-  const [rewardAmount,  setRewardAmount]  = useState('')
-  const [rewardReason,  setRewardReason]  = useState('')
-  const [rewardLoading, setRewardLoading] = useState(false)
-  const [rewardMsg,     setRewardMsg]     = useState('')
+  const [rewardAmount,   setRewardAmount]   = useState('')
+  const [rewardReason,   setRewardReason]   = useState('')
+  const [rewardLoading,  setRewardLoading]  = useState(false)
+  const [rewardMsg,      setRewardMsg]      = useState('')
   const [currentBalance, setCurrentBalance] = useState(0)
-  const [removeMode,    setRemoveMode]    = useState(false)
+  const [removeMode,     setRemoveMode]     = useState(false)
 
   // Gift points
   const [giftCode,      setGiftCode]      = useState('')
@@ -74,6 +98,9 @@ export default function UserProfile() {
   const [giftLoading,   setGiftLoading]   = useState(false)
   const [giftMsg,       setGiftMsg]       = useState('')
   const giftCodeTimer = useRef<ReturnType<typeof setTimeout>|null>(null)
+
+  // Delete comment
+  const [deletingComment, setDeletingComment] = useState<string | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -100,15 +127,81 @@ export default function UserProfile() {
   useEffect(() => { if (id) getUserPosts(id, postSort).then(setPosts).catch(console.error) }, [id, postSort])
   useEffect(() => { if (id) getUserSwipes(id, swipeAction).then(setSwipes).catch(console.error) }, [id, swipeAction])
 
-  // Right panel loader
-  const openRightPanel = async (type: RightPanel) => {
-    if (!id || type === null) { setRightPanel(null); return }
+  // Right panel — opens panel with correct data, never toggles closed (only X closes)
+  const openRightPanel = async (type: NonNullable<RightPanel>) => {
+    if (!id) return
     setRightPanel(type)
     setRightPanelLoading(true)
+    setRightPanelItems([])
     try {
-      const action = type === 'liked-by' ? 'LIKE' : type === 'disliked-by' ? 'DISLIKE' : type === 'super-liked-by' ? 'SUPER_LIKE' : 'ALL'
-      setRightPanelUsers(await getWhoSwipedUser(id, action))
-    } catch { setRightPanelUsers([]) }
+      switch (type) {
+        case 'likes-given': {
+          const data = await getUserSwipes(id, 'LIKE', 100)
+          setRightPanelItems(data.map(s => ({
+            id: s.toUserId, label: s.toUserName || 'Unknown', sublabel: s.toUserId,
+            badge: 'LIKE', badgeColor: 'bg-green-100 text-green-700', date: s.createdAt,
+          })))
+          break
+        }
+        case 'dislikes-given': {
+          const data = await getUserSwipes(id, 'DISLIKE', 100)
+          setRightPanelItems(data.map(s => ({
+            id: s.toUserId, label: s.toUserName || 'Unknown', sublabel: s.toUserId,
+            badge: 'DISLIKE', badgeColor: 'bg-red-100 text-red-600', date: s.createdAt,
+          })))
+          break
+        }
+        case 'super-likes-given': {
+          const data = await getUserSwipes(id, 'SUPER_LIKE', 100)
+          setRightPanelItems(data.map(s => ({
+            id: s.toUserId, label: s.toUserName || 'Unknown', sublabel: s.toUserId,
+            badge: 'SUPER LIKE', badgeColor: 'bg-purple-100 text-purple-700', date: s.createdAt,
+          })))
+          break
+        }
+        case 'matches': {
+          setRightPanelItems(matches.map(m => ({
+            id: m.otherUserId, label: m.otherUserName || 'Unknown', sublabel: m.otherUserId,
+            date: m.matchedAt,
+          })))
+          break
+        }
+        case 'mood-posts': {
+          setRightPanelItems(posts.map(p => ({
+            id: p.id, label: p.moodType,
+            sublabel: p.description ? `"${p.description.slice(0, 60)}${p.description.length > 60 ? '…' : ''}"` : undefined,
+            badge: `❤️ ${p.likeCount}  💬 ${p.commentCount}`,
+            badgeColor: 'bg-blue-50 text-blue-600',
+            date: p.createdAt,
+          })))
+          break
+        }
+        case 'liked-by': {
+          const data = await getWhoSwipedUser(id, 'LIKE', 100)
+          setRightPanelItems(data.map(u => ({
+            id: u.userId, label: u.name || 'Unknown', sublabel: u.userId,
+            badge: 'LIKED', badgeColor: 'bg-green-100 text-green-700', date: u.createdAt,
+          })))
+          break
+        }
+        case 'disliked-by': {
+          const data = await getWhoSwipedUser(id, 'DISLIKE', 100)
+          setRightPanelItems(data.map(u => ({
+            id: u.userId, label: u.name || 'Unknown', sublabel: u.userId,
+            badge: 'DISLIKED', badgeColor: 'bg-red-100 text-red-600', date: u.createdAt,
+          })))
+          break
+        }
+        case 'super-liked-by': {
+          const data = await getWhoSwipedUser(id, 'SUPER_LIKE', 100)
+          setRightPanelItems(data.map(u => ({
+            id: u.userId, label: u.name || 'Unknown', sublabel: u.userId,
+            badge: 'SUPER LIKED', badgeColor: 'bg-purple-100 text-purple-700', date: u.createdAt,
+          })))
+          break
+        }
+      }
+    } catch { setRightPanelItems([]) }
     finally { setRightPanelLoading(false) }
   }
 
@@ -121,11 +214,9 @@ export default function UserProfile() {
       sseCleanupRef.current?.(); sseCleanupRef.current = null
       return
     }
-    // Stop previous SSE if switching conversations
     sseCleanupRef.current?.(); sseCleanupRef.current = null
     setExpandedChat(conversationId)
 
-    // Load historical messages first
     setChatMsgLoading(conversationId)
     try {
       const msgs = await getChatMessages(conversationId)
@@ -133,20 +224,18 @@ export default function UserProfile() {
     } catch { /* ignore */ }
     setChatMsgLoading(null)
 
-    // Connect SSE — fires immediately when chat-service sends a message via Redis
     sseCleanupRef.current = createChatStream(conversationId, (incoming) => {
       setChatMessages(prev => {
         const existing = prev[conversationId] ?? []
-        const id = incoming['id'] as string | undefined
-        if (id && existing.some((m: ChatMessage) => m.id === id)) return prev
-        // Prepend (list is stored newest-first to match DESC backend order)
+        const msgId = incoming['id'] as string | undefined
+        if (msgId && existing.some((m: ChatMessage) => m.id === msgId)) return prev
         return { ...prev, [conversationId]: [incoming as unknown as ChatMessage, ...existing] }
       })
     })
   }
   useEffect(() => () => { sseCleanupRef.current?.() }, [])
 
-  // Gift code live lookup (debounced)
+  // Gift code live lookup (debounced 600ms)
   const handleGiftCodeChange = (code: string) => {
     setGiftCode(code)
     setGiftRecipient(null)
@@ -190,6 +279,18 @@ export default function UserProfile() {
     } finally { setGiftLoading(false) }
   }
 
+  const handleDeleteComment = async (commentId: string) => {
+    if (!commentId) return
+    setDeletingComment(commentId)
+    try {
+      await deleteComment(commentId)
+      setEngagements(prev => prev.filter(e => e.commentId !== commentId))
+      setInteractions(prev => prev.filter(i => i.commentId !== commentId))
+    } catch (e: any) {
+      alert('Failed to delete comment: ' + (e?.response?.data?.error || 'Error'))
+    } finally { setDeletingComment(null) }
+  }
+
   if (loading) return <div className="flex items-center justify-center h-64 text-slate-400">Loading profile…</div>
   if (error || !detail) return (
     <div className="flex flex-col items-center justify-center h-64 gap-3">
@@ -208,21 +309,16 @@ export default function UserProfile() {
     { key: 'chats',        label: 'Chats',              count: chats.length },
   ]
 
-  const statCards = [
-    { label: 'Likes Given',    value: detail.totalLikes,        panel: 'all-swiped'    as RightPanel, color: 'text-green-600',   icon: <Heart size={13}/> },
-    { label: 'Dislikes',       value: detail.totalDislikes,     panel: 'all-swiped'    as RightPanel, color: 'text-red-500',     icon: <HeartCrack size={13}/> },
-    { label: 'Super Likes',    value: detail.totalSuperLikes,   panel: 'all-swiped'    as RightPanel, color: 'text-purple-600',  icon: <Zap size={13}/> },
-    { label: 'Matches',        value: detail.totalMatches,      panel: null,                           color: 'text-pink-600',    icon: <Users size={13}/> },
-    { label: 'Mood Posts',     value: detail.totalMoodPosts,    panel: null,                           color: 'text-blue-600',    icon: <FileText size={13}/> },
-    { label: 'Liked By',       value: '→',                      panel: 'liked-by'      as RightPanel, color: 'text-emerald-600', icon: <Heart size={13}/> },
-    { label: 'Disliked By',    value: '→',                      panel: 'disliked-by'   as RightPanel, color: 'text-orange-500',  icon: <HeartCrack size={13}/> },
-    { label: 'Super Liked By', value: '→',                      panel: 'super-liked-by'as RightPanel, color: 'text-violet-600',  icon: <Zap size={13}/> },
+  const statCards: { label: string; value: string | number; panel: NonNullable<RightPanel>; color: string; icon: JSX.Element }[] = [
+    { label: 'Likes Given',    value: detail.totalLikes,      panel: 'likes-given',      color: 'text-green-600',   icon: <Heart size={13}/> },
+    { label: 'Dislikes Given', value: detail.totalDislikes,   panel: 'dislikes-given',   color: 'text-red-500',     icon: <HeartCrack size={13}/> },
+    { label: 'Super Likes',    value: detail.totalSuperLikes, panel: 'super-likes-given',color: 'text-purple-600',  icon: <Zap size={13}/> },
+    { label: 'Matches',        value: detail.totalMatches,    panel: 'matches',          color: 'text-pink-600',    icon: <Users size={13}/> },
+    { label: 'Mood Posts',     value: detail.totalMoodPosts,  panel: 'mood-posts',       color: 'text-blue-600',    icon: <FileText size={13}/> },
+    { label: 'Liked By',       value: '→',                    panel: 'liked-by',         color: 'text-emerald-600', icon: <Heart size={13}/> },
+    { label: 'Disliked By',    value: '→',                    panel: 'disliked-by',      color: 'text-orange-500',  icon: <HeartCrack size={13}/> },
+    { label: 'Super Liked By', value: '→',                    panel: 'super-liked-by',   color: 'text-violet-600',  icon: <Zap size={13}/> },
   ]
-
-  const rightPanelTitle = rightPanel === 'liked-by' ? 'Who Liked This User'
-    : rightPanel === 'disliked-by' ? 'Who Disliked This User'
-    : rightPanel === 'super-liked-by' ? 'Who Super Liked This User'
-    : 'All Swipes On This User'
 
   return (
     <div className="p-6 space-y-5 max-w-7xl">
@@ -233,7 +329,7 @@ export default function UserProfile() {
       {/* ── Header + Right Panel layout ────────────────────────────────────── */}
       <div className="flex gap-5 items-start">
 
-        {/* Left: profile card */}
+        {/* Left: everything */}
         <div className="flex-1 min-w-0 space-y-5">
 
           {/* Profile card */}
@@ -295,15 +391,13 @@ export default function UserProfile() {
               </div>
             </div>
 
-            {/* Stat cards — clickable → right panel */}
+            {/* Stat cards — all clickable, open right panel */}
             <div className="shrink-0 grid grid-cols-2 gap-2 content-start">
               {statCards.map(s => (
-                <button key={s.label}
-                  onClick={() => s.panel ? openRightPanel(rightPanel === s.panel ? null : s.panel) : undefined}
-                  className={`bg-slate-50 rounded-lg px-3 py-2 text-left transition-all ${
-                    s.panel ? 'hover:bg-purple-50 hover:border-purple-200 border border-transparent cursor-pointer' : 'cursor-default border border-transparent'
-                  } ${rightPanel === s.panel ? 'bg-purple-50 border-purple-300' : ''}`}
-                >
+                <button key={s.label} onClick={() => openRightPanel(s.panel)}
+                  className={`bg-slate-50 rounded-lg px-3 py-2 text-left transition-all border cursor-pointer hover:bg-purple-50 hover:border-purple-200 ${
+                    rightPanel === s.panel ? 'bg-purple-50 border-purple-300' : 'border-transparent'
+                  }`}>
                   <p className={`flex items-center gap-1 text-xs font-medium ${s.color}`}>{s.icon}{s.label}</p>
                   <p className="text-xl font-bold text-slate-800 mt-0.5">{s.value}</p>
                 </button>
@@ -344,7 +438,7 @@ export default function UserProfile() {
               {rewardMsg && <p className={`text-xs mt-1.5 font-medium ${rewardMsg.startsWith('✓') ? 'text-green-600' : 'text-red-500'}`}>{rewardMsg}</p>}
             </div>
 
-            {/* Gift points to another user */}
+            {/* Gift points */}
             <div className="border-t border-amber-100 pt-4">
               <div className="flex items-center gap-2 mb-2">
                 <Gift size={14} className="text-purple-500"/>
@@ -549,7 +643,17 @@ export default function UserProfile() {
                         {pi.moodDescription && <p className="text-xs text-slate-500 mt-1 truncate">"{pi.moodDescription}"</p>}
                         {pi.type === 'COMMENT' && pi.comment && <p className="text-sm text-slate-700 mt-1 bg-slate-50 rounded px-2 py-1">"{pi.comment}"</p>}
                       </div>
-                      <span className="text-xs text-slate-300 shrink-0">{pi.createdAt ? new Date(pi.createdAt).toLocaleString() : ''}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-xs text-slate-300">{pi.createdAt ? new Date(pi.createdAt).toLocaleString() : ''}</span>
+                        {pi.type === 'COMMENT' && pi.commentId && (
+                          <button onClick={() => handleDeleteComment(pi.commentId!)}
+                            disabled={deletingComment === pi.commentId}
+                            title="Delete comment"
+                            className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-40 transition-colors">
+                            <Trash2 size={13}/>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -579,7 +683,17 @@ export default function UserProfile() {
                         {e.postDescription && <p className="text-xs text-slate-500 mt-1 truncate">"{e.postDescription}"</p>}
                         {e.type === 'COMMENT' && e.comment && <p className="text-sm text-slate-700 mt-1 bg-slate-50 rounded px-2 py-1">"{e.comment}"</p>}
                       </div>
-                      <span className="text-xs text-slate-300 shrink-0">{e.createdAt ? new Date(e.createdAt).toLocaleString() : ''}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-xs text-slate-300">{e.createdAt ? new Date(e.createdAt).toLocaleString() : ''}</span>
+                        {e.type === 'COMMENT' && e.commentId && (
+                          <button onClick={() => handleDeleteComment(e.commentId!)}
+                            disabled={deletingComment === e.commentId}
+                            title="Delete comment"
+                            className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-40 transition-colors">
+                            <Trash2 size={13}/>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -604,12 +718,7 @@ export default function UserProfile() {
                         <p className="font-mono text-xs text-slate-400">{m.otherUserId}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${m.isActive ? 'bg-green-100 text-green-700' : 'bg-red-50 text-red-500'}`}>
-                        {m.isActive ? 'Matched' : 'Unmatched'}
-                      </span>
-                      <span className="text-xs text-slate-300">{m.matchedAt ? new Date(m.matchedAt).toLocaleString() : '—'}</span>
-                    </div>
+                    <span className="text-xs text-slate-300">{m.matchedAt ? new Date(m.matchedAt).toLocaleString() : '—'}</span>
                   </div>
                 ))}
               </div>
@@ -677,7 +786,7 @@ export default function UserProfile() {
                               })}
                             </div>
                           )}
-                          <p className="text-center text-xs text-slate-300 mt-3">Auto-refreshes every 10s</p>
+                          <p className="text-center text-xs text-slate-300 mt-3">Live via Redis — updates instantly</p>
                         </div>
                       )}
                     </div>
@@ -688,25 +797,29 @@ export default function UserProfile() {
           )}
         </div>
 
-        {/* ── Right Panel — who swiped this user ─────────────────────────────── */}
+        {/* ── Right Panel ─────────────────────────────────────────────────────── */}
         {rightPanel && (
           <div className="w-72 shrink-0 bg-white rounded-xl shadow-sm border border-slate-100 self-start sticky top-4">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-              <span className="text-sm font-semibold text-slate-700">{rightPanelTitle}</span>
+              <span className="text-sm font-semibold text-slate-700">{RIGHT_PANEL_TITLES[rightPanel]}</span>
               <button onClick={() => setRightPanel(null)} className="text-slate-400 hover:text-slate-600">
                 <X size={15}/>
               </button>
             </div>
             <div className="max-h-[70vh] overflow-y-auto divide-y divide-slate-50">
               {rightPanelLoading && <p className="text-center text-slate-400 py-8 text-sm">Loading…</p>}
-              {!rightPanelLoading && rightPanelUsers.length === 0 && <p className="text-center text-slate-400 py-8 text-sm">No results</p>}
-              {!rightPanelLoading && rightPanelUsers.map((u, i) => (
+              {!rightPanelLoading && rightPanelItems.length === 0 && <p className="text-center text-slate-400 py-8 text-sm">No results</p>}
+              {!rightPanelLoading && rightPanelItems.map((item, i) => (
                 <div key={i} className="px-4 py-3">
-                  <p className="text-sm font-medium text-slate-700">{u.name || 'Unknown'}</p>
-                  <p className="font-mono text-xs text-slate-400 truncate">{u.userId}</p>
-                  <div className="flex items-center justify-between mt-1">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${ACTION_COLOR[u.action] ?? ''}`}>{u.action}</span>
-                    <span className="text-xs text-slate-300">{u.createdAt ? new Date(u.createdAt).toLocaleString() : ''}</span>
+                  <p className="text-sm font-medium text-slate-700">{item.label}</p>
+                  {item.sublabel && <p className="font-mono text-xs text-slate-400 truncate mt-0.5">{item.sublabel}</p>}
+                  <div className="flex items-center justify-between mt-1 gap-2">
+                    {item.badge && (
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${item.badgeColor ?? 'bg-slate-100 text-slate-600'}`}>
+                        {item.badge}
+                      </span>
+                    )}
+                    {item.date && <span className="text-xs text-slate-300 shrink-0">{new Date(item.date).toLocaleDateString()}</span>}
                   </div>
                 </div>
               ))}

@@ -21,6 +21,14 @@ public class DataSourceConfig {
     @Value("${DB_PASS}") private String dbPass;
 
     private DataSource readOnlyDs(String url) {
+        return ds(url, true);
+    }
+
+    private DataSource writableDs(String url) {
+        return ds(url, false);
+    }
+
+    private DataSource ds(String url, boolean readOnly) {
         HikariConfig cfg = new HikariConfig();
         cfg.setJdbcUrl(url);
         cfg.setUsername(dbUser);
@@ -28,7 +36,7 @@ public class DataSourceConfig {
         cfg.setDriverClassName("org.postgresql.Driver");
         cfg.setMaximumPoolSize(2);
         cfg.setMinimumIdle(0);
-        cfg.setReadOnly(true);
+        cfg.setReadOnly(readOnly);
         cfg.setConnectionTimeout(10_000);
         cfg.setIdleTimeout(300_000);
         return new HikariDataSource(cfg);
@@ -74,5 +82,22 @@ public class DataSourceConfig {
     @Bean("moodJdbc")
     public JdbcTemplate moodJdbc(@Value("${MOOD_DB_URL}") String url) {
         return new JdbcTemplate(readOnlyDs(url));
+    }
+
+    // ── Write-enabled beans for admin mutations ───────────────────────────────
+
+    @Bean("writeUserJdbc")
+    public JdbcTemplate writeUserJdbc(@Value("${USER_DB_URL}") String url) {
+        return new JdbcTemplate(writableDs(url));
+    }
+
+    @Bean("writeAuthJdbc")
+    public JdbcTemplate writeAuthJdbc(@Value("${AUTH_DB_URL}") String url) {
+        return new JdbcTemplate(writableDs(url));
+    }
+
+    @Bean("writeMoodJdbc")
+    public JdbcTemplate writeMoodJdbc(@Value("${MOOD_DB_URL}") String url) {
+        return new JdbcTemplate(writableDs(url));
     }
 }

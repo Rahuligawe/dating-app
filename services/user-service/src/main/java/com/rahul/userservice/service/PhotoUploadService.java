@@ -29,6 +29,36 @@ public class PhotoUploadService {
         this.s3Client = s3Client;
     }
 
+    /**
+     * Upload for chat messages — stored under "chat/{userId}/" prefix.
+     * This does NOT touch the user's profile photos list.
+     */
+    public String uploadForChat(String userId, MultipartFile file) {
+        try {
+            String key = "chat/" + userId + "/"
+                    + UUID.randomUUID()
+                    + getExtension(file.getOriginalFilename());
+
+            s3Client.putObject(
+                    PutObjectRequest.builder()
+                            .bucket(bucket)
+                            .key(key)
+                            .contentType(file.getContentType())
+                            .acl(ObjectCannedACL.PUBLIC_READ)
+                            .build(),
+                    RequestBody.fromBytes(file.getBytes())
+            );
+
+            String publicUrl = buildPublicUrl(key);
+            log.info("Chat media uploaded for user {}: {}", userId, publicUrl);
+            return publicUrl;
+
+        } catch (IOException e) {
+            log.error("Chat media upload failed for user {}: {}", userId, e.getMessage(), e);
+            throw new RuntimeException("Failed to upload chat media: " + e.getMessage());
+        }
+    }
+
     public String upload(String userId, MultipartFile file) {
         try {
             String key = "users/" + userId + "/"

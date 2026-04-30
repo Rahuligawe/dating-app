@@ -100,6 +100,18 @@ public class UserController {
         return ResponseEntity.ok(Map.of("photoUrl", url));
     }
 
+    /**
+     * Chat media upload — S3 pe upload karo under "chat/{userId}/" prefix.
+     * Profile photos list mein add NAHI hota — ye sirf chat ke liye hai.
+     */
+    @PostMapping("/me/chat-upload")
+    public ResponseEntity<Map<String, String>> uploadChatMedia(
+            @RequestHeader("X-User-Id") String userId,
+            @RequestParam("file") MultipartFile file) {
+        String url = userService.uploadChatMedia(userId, file);
+        return ResponseEntity.ok(Map.of("photoUrl", url));
+    }
+
     @DeleteMapping("/me/photos")
     public ResponseEntity<Void> deletePhoto(
             @RequestHeader("X-User-Id") String userId,
