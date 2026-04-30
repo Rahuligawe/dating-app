@@ -12,7 +12,6 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
 
-  // Backend sirf 10-digit Indian number chahta hai (no +91 prefix)
   function normalizeMobile(m: string): string {
     return m.replace(/\D/g, '').replace(/^91/, '').slice(-10)
   }
@@ -55,65 +54,178 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1E1E35] to-[#2A1A4A] flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8">
+    <div style={{
+      minHeight: '100vh',
+      background: 'radial-gradient(ellipse at 30% 40%, #1A1A2E 0%, #0A0A0F 100%)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '16px',
+      fontFamily: "'Outfit', 'Inter', sans-serif"
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Outfit:wght@300;400;500;600&display=swap');
+        .login-card {
+          animation: fadeInUp 0.5s ease;
+        }
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+
+      <div className="login-card" style={{
+        background: '#111118',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 28,
+        width: '100%',
+        maxWidth: 400,
+        padding: '36px 32px',
+        boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+        backdropFilter: 'blur(2px)'
+      }}>
         {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center mb-3">
-            <Heart size={28} className="text-white fill-white" />
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <div style={{
+            width: 64,
+            height: 64,
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #C9A96E, #A0784A)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 16px',
+            boxShadow: '0 8px 20px rgba(201,169,110,0.25)'
+          }}>
+            <Heart size={30} style={{ fill: '#fff', color: '#fff' }} />
           </div>
-          <h1 className="text-2xl font-bold text-slate-800">AuraLink Admin</h1>
-          <p className="text-slate-500 text-sm mt-1">Admin access only</p>
+          <h1 style={{
+            fontFamily: "'Cormorant Garamond', serif",
+            fontSize: 32,
+            fontWeight: 600,
+            color: '#F0EDE8',
+            margin: 0,
+            letterSpacing: '-0.5px'
+          }}>AuraLink Admin</h1>
+          <p style={{ fontSize: 13, color: '#5C5A6E', marginTop: 6 }}>Secure access only</p>
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm mb-4">
+          <div style={{
+            background: 'rgba(224,92,107,0.12)',
+            border: '1px solid rgba(224,92,107,0.25)',
+            borderRadius: 12,
+            padding: '10px 14px',
+            marginBottom: 20,
+            fontSize: 12,
+            color: '#E05C6B'
+          }}>
             {error}
           </div>
         )}
 
         {step === 'mobile' ? (
           <>
-            <label className="text-sm font-medium text-slate-700 block mb-1">Mobile Number</label>
+            <label style={{ fontSize: 12, fontWeight: 500, color: '#8A8799', display: 'block', marginBottom: 6 }}>Mobile Number</label>
             <input
               type="tel"
               value={mobile}
               onChange={e => setMobile(e.target.value)}
-              placeholder="9876543210 (10 digits)"
-              className="w-full border border-slate-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 mb-4"
+              placeholder="9876543210"
+              style={{
+                width: '100%',
+                background: '#1C1C28',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 12,
+                padding: '12px 16px',
+                fontSize: 14,
+                color: '#F0EDE8',
+                fontFamily: 'inherit',
+                outline: 'none',
+                marginBottom: 20
+              }}
+              onFocus={e => e.target.style.borderColor = '#C9A96E'}
+              onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
             />
             <button
               onClick={sendOtp}
               disabled={loading || !mobile}
-              className="w-full bg-gradient-to-r from-pink-500 to-purple-600 text-white font-semibold py-3 rounded-lg hover:opacity-90 transition disabled:opacity-50"
+              style={{
+                width: '100%',
+                background: loading || !mobile ? 'rgba(201,169,110,0.3)' : 'linear-gradient(135deg, #C9A96E, #A0784A)',
+                border: 'none',
+                borderRadius: 12,
+                padding: '12px',
+                fontSize: 14,
+                fontWeight: 600,
+                color: '#fff',
+                cursor: loading || !mobile ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s'
+              }}
             >
-              {loading ? 'Sending…' : 'Send OTP'}
+              {loading ? 'Sending...' : 'Send OTP'}
             </button>
           </>
         ) : (
           <>
-            <p className="text-sm text-slate-500 mb-3">OTP sent to <strong>{mobile}</strong></p>
-            <label className="text-sm font-medium text-slate-700 block mb-1">OTP Code</label>
+            <p style={{ fontSize: 13, color: '#8A8799', marginBottom: 16 }}>
+              OTP sent to <strong style={{ color: '#C9A96E' }}>{mobile}</strong>
+            </p>
+            <label style={{ fontSize: 12, fontWeight: 500, color: '#8A8799', display: 'block', marginBottom: 6 }}>Verification Code</label>
             <input
               type="text"
               value={otp}
               onChange={e => setOtp(e.target.value)}
               placeholder="Enter 6-digit OTP"
               maxLength={6}
-              className="w-full border border-slate-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 mb-4"
+              style={{
+                width: '100%',
+                background: '#1C1C28',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 12,
+                padding: '12px 16px',
+                fontSize: 14,
+                color: '#F0EDE8',
+                fontFamily: 'inherit',
+                outline: 'none',
+                marginBottom: 20,
+                textAlign: 'center',
+                letterSpacing: '4px'
+              }}
+              onFocus={e => e.target.style.borderColor = '#C9A96E'}
+              onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
             />
             <button
               onClick={verifyOtp}
               disabled={loading || otp.length < 4}
-              className="w-full bg-gradient-to-r from-pink-500 to-purple-600 text-white font-semibold py-3 rounded-lg hover:opacity-90 transition disabled:opacity-50"
+              style={{
+                width: '100%',
+                background: loading || otp.length < 4 ? 'rgba(201,169,110,0.3)' : 'linear-gradient(135deg, #C9A96E, #A0784A)',
+                border: 'none',
+                borderRadius: 12,
+                padding: '12px',
+                fontSize: 14,
+                fontWeight: 600,
+                color: '#fff',
+                cursor: loading || otp.length < 4 ? 'not-allowed' : 'pointer',
+                marginBottom: 12
+              }}
             >
-              {loading ? 'Verifying…' : 'Login'}
+              {loading ? 'Verifying...' : 'Login to Dashboard'}
             </button>
             <button
               onClick={() => setStep('mobile')}
-              className="w-full mt-2 text-sm text-slate-500 hover:text-slate-700"
+              style={{
+                width: '100%',
+                background: 'transparent',
+                border: 'none',
+                fontSize: 12,
+                color: '#5C5A6E',
+                cursor: 'pointer',
+                padding: '8px'
+              }}
             >
-              ← Change number
+              ← Change mobile number
             </button>
           </>
         )}
