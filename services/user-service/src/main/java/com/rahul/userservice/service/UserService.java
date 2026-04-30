@@ -202,6 +202,14 @@ public class UserService {
         return photoUrl;
     }
 
+    /**
+     * Chat media upload — S3 pe upload karo "chat/{userId}/" prefix ke under.
+     * User ke profile photos list mein add NAHI karta — purely for chat use.
+     */
+    public String uploadChatMedia(String userId, MultipartFile file) {
+        return photoUploadService.uploadForChat(userId, file);
+    }
+
     @Transactional
     public void deletePhoto(String userId, String photoUrl) {
         UserProfile profile = findUser(userId);

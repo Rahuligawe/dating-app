@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/api/chats")
@@ -74,6 +75,21 @@ public class ChatController {
             @PathVariable("conversationId") String conversationId) {
         chatService.markAsDelivered(conversationId, userId);
         return ResponseEntity.ok().build();
+    }
+
+    // Bulk delete: DELETE /api/chats/{conversationId}/messages
+    // Body: ["msgId1", "msgId2", ...]
+    // Security: only a conversation participant can delete
+    @DeleteMapping("/{conversationId}/messages")
+    public ResponseEntity<Void> deleteMessages(
+            @RequestHeader("X-User-Id") String userId,
+            @PathVariable("conversationId") String conversationId,
+            @RequestBody List<String> messageIds) {
+        if (messageIds == null || messageIds.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        chatService.deleteMessages(conversationId, userId, messageIds);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{conversationId}/unread")

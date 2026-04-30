@@ -200,6 +200,31 @@ public class ChatService {
                 .countByConversationIdAndSeenFalseAndSenderIdNot(conversationId, userId);
     }
 
+    // ─── Delete Messages (bulk) ───────────────────────────────────────────────
+    // Only a conversation participant can delete. Deletes from MongoDB permanently.
+    public void deleteMessages(String conversationId, String requestingUserId,
+                               List<String> messageIds) {
+        // Security: verify requester is a participant in this conversation
+        Conversation conv = conversationRepository.findById(conversationId).orElse(null);
+        if (conv == null) return;
+        boolean isParticipant = requestingUserId.equals(conv.getUser1Id())
+                || requestingUserId.equals(conv.getUser2Id());
+        if (!isParticipant) {
+            log.warn("User {} tried to delete messages in conversation {} but is not a participant",
+                    requestingUserId, conversationId);
+            return;
+        }
+        // Delete only the requested IDs that actually belong to this conversation
+        List<Message> toDelete = messageRepository.findAllById(messageIds).stream()
+                .filter(m -> conversationId.equals(m.getConversationId()))
+                .toList();
+        if (!toDelete.isEmpty()) {
+            messageRepository.deleteAll(toDelete);
+            log.info("User {} deleted {} messages from conversation {}",
+                    requestingUserId, toDelete.size(), conversationId);
+        }
+    }
+
     // ─── Admin: Get Full Conversation (no side effects) ───────────────────────
 
     public List<Message> getAdminMessages(String conversationId, int limit) {
