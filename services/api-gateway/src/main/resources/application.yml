@@ -5,7 +5,7 @@ spring:
   application:
     name: api-gateway
   codec:
-    max-in-memory-size: 50MB   # Gateway buffer — default 256KB causes 413 on large uploads
+    max-in-memory-size: 500MB  # Gateway buffer — default 256KB causes 413 on large uploads
   cloud:
     gateway:
       routes:
