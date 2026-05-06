@@ -71,6 +71,7 @@ public class ChatService {
                 case VIDEO    -> "🎥 Video";
                 case LOCATION -> "📍 Location";
                 case GIF      -> "GIF";
+                case FILE     -> "📄 Document";
             };
             conv.setLastMessage(preview);
             conv.setLastMessageType(message.getType().name());

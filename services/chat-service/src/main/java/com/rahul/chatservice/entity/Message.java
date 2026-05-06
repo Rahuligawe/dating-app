@@ -58,6 +58,6 @@ public class Message {
     private LocalDateTime sentAt;
 
     public enum MessageType {
-        TEXT, IMAGE, VOICE, VIDEO, LOCATION, GIF
+        TEXT, IMAGE, VOICE, VIDEO, LOCATION, GIF, FILE
     }
 }
