@@ -133,6 +133,15 @@ public class UserController {
         return ResponseEntity.ok().build();
     }
 
+    // ─── Find User by Mobile — Konvo Talk peer search ─────────────────────────
+    // Returns { userId, name, mobile, androidId, deviceName, deviceBrand, registeredOnKonvo }
+    // registeredOnKonvo=false → Android shows "Send Invite" SMS option
+    @GetMapping("/by-mobile")
+    public ResponseEntity<KonvoUserResponse> getUserByMobile(
+            @RequestParam String mobile) {
+        return ResponseEntity.ok(userService.getUserByMobile(mobile));
+    }
+
     @GetMapping("/discover")
     public ResponseEntity<List<UserProfileResponse>> getDiscoverProfiles(
             @RequestHeader("X-User-Id") String userId,

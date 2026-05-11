@@ -78,6 +78,19 @@ public class UserProfile {
     @Builder.Default
     private Boolean isProfileComplete = false;
 
+    // ─── Device & App Source (Konvo Talk + AuraLink) ──────────────────────────
+    @Column(unique = true)
+    private String mobile;        // 10-digit Indian number, unique per user
+
+    private String androidId;     // Settings.Secure.ANDROID_ID
+
+    private String deviceName;    // Build.MODEL  e.g. "SM-G991B"
+
+    private String deviceBrand;   // Build.BRAND  e.g. "samsung"
+
+    // "AURALINK" | "KONVO_TALK" | "BOTH"
+    private String appSource;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 

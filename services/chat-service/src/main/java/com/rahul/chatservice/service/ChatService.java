@@ -30,7 +30,7 @@ public class ChatService {
     private final StreamPublisher streamPublisher;
     private final RedisPublisher redisPublisher;
 
-    // ─── Create Conversation ──────────────────────────────────
+    // ─── Create Conversation (AuraLink — match-service event se) ─────────────
 
     public void createConversation(String matchId, String user1Id, String user2Id) {
         if (!conversationRepository.existsById(matchId)) {
@@ -39,6 +39,29 @@ public class ChatService {
                     .createdAt(LocalDateTime.now()).build());
             log.info("Conversation created for match: {}", matchId);
         }
+    }
+
+    // ─── Start Direct Conversation (Konvo Talk — no match needed) ────────────
+    // conversationId = sorted(userId1, userId2) joined by "_"
+    // Idempotent: same two users → always same conversationId → existing return hogi
+
+    public Conversation startDirectConversation(String myUserId, String peerId) {
+        String[] ids = {myUserId, peerId};
+        java.util.Arrays.sort(ids);
+        String conversationId = ids[0] + "_" + ids[1];
+
+        return conversationRepository.findById(conversationId)
+                .orElseGet(() -> {
+                    Conversation c = conversationRepository.save(
+                            Conversation.builder()
+                                    .id(conversationId)
+                                    .user1Id(ids[0])
+                                    .user2Id(ids[1])
+                                    .createdAt(LocalDateTime.now())
+                                    .build());
+                    log.info("Direct conversation created: {} ↔ {}", myUserId, peerId);
+                    return c;
+                });
     }
 
     // ─── Send Message ─────────────────────────────────────────
