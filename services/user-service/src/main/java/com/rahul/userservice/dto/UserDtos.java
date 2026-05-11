@@ -24,6 +24,12 @@ public class UserDtos {
         private Integer minAgePreference;
         private Integer maxAgePreference;
         private String city;
+        // Device & app registration fields (Konvo Talk + AuraLink)
+        private String mobile;      // 10-digit number
+        private String androidId;
+        private String deviceName;
+        private String deviceBrand;
+        private String appSource;   // "AURALINK" | "KONVO_TALK"
     }
 
     @Data @Builder
@@ -46,6 +52,19 @@ public class UserDtos {
         private Boolean isProfileComplete;
         private Double compatibilityScore; // AI-computed, optional
         private String profilePhotoUrl;
+    }
+
+    // Response for Konvo Talk's "Find Online User by mobile number" feature
+    @Data @Builder
+    public static class KonvoUserResponse {
+        private String userId;
+        private String name;
+        private String mobile;
+        private String profilePhotoUrl;
+        private String androidId;
+        private String deviceName;
+        private String deviceBrand;
+        private boolean registeredOnKonvo; // false → show "Send Invite" in Android
     }
 
     @Data

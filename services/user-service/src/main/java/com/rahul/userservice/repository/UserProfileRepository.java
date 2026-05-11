@@ -10,6 +10,8 @@ import org.springframework.data.repository.query.Param;
 public interface UserProfileRepository
         extends JpaRepository<UserProfile, String> {
 
+    java.util.Optional<UserProfile> findByMobile(String mobile);
+
     /*@Query("""
                 SELECT u FROM UserProfile u
                 WHERE u.id != :userId

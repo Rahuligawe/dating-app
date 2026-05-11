@@ -159,6 +159,30 @@ public class UserService {
         if (request.getMaxDistanceKm() != null)
             profile.setMaxDistanceKm(request.getMaxDistanceKm());
 
+        // ── Device & App source fields ─────────────────────────────────────────
+        if (request.getMobile() != null)
+            profile.setMobile(request.getMobile());
+
+        if (request.getAndroidId() != null)
+            profile.setAndroidId(request.getAndroidId());
+
+        if (request.getDeviceName() != null)
+            profile.setDeviceName(request.getDeviceName());
+
+        if (request.getDeviceBrand() != null)
+            profile.setDeviceBrand(request.getDeviceBrand());
+
+        if (request.getAppSource() != null) {
+            String existing = profile.getAppSource();
+            if (existing == null) {
+                profile.setAppSource(request.getAppSource());
+            } else if (!existing.equals(request.getAppSource()) && !existing.equals("BOTH")) {
+                // AURALINK + KONVO_TALK = BOTH
+                profile.setAppSource("BOTH");
+            }
+            // if already BOTH or same value → no change
+        }
+
         profile.setIsProfileComplete(isProfileComplete(profile));
 
         UserProfile saved = userProfileRepository.save(profile);
@@ -178,6 +202,31 @@ public class UserService {
         }
 
         return toResponse(saved);
+    }
+
+    // ─── Find User by Mobile (Konvo Talk) ────────────────────────────────────
+
+    public KonvoUserResponse getUserByMobile(String mobile) {
+        return userProfileRepository.findByMobile(mobile)
+                .map(p -> KonvoUserResponse.builder()
+                        .userId(p.getId())
+                        .name(p.getName())
+                        .mobile(p.getMobile())
+                        .profilePhotoUrl(p.getPhotos() != null && !p.getPhotos().isEmpty()
+                                ? p.getPhotos().get(0) : null)
+                        .androidId(p.getAndroidId())
+                        .deviceName(p.getDeviceName())
+                        .deviceBrand(p.getDeviceBrand())
+                        .registeredOnKonvo(
+                                "KONVO_TALK".equals(p.getAppSource()) ||
+                                "BOTH".equals(p.getAppSource())
+                        )
+                        .build()
+                )
+                .orElseGet(() -> KonvoUserResponse.builder()
+                        .mobile(mobile)
+                        .registeredOnKonvo(false)
+                        .build());
     }
 
     // ─── Photo Upload ─────────────────────────────────────────────────────────

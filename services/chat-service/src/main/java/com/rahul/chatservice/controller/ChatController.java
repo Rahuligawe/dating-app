@@ -25,6 +25,20 @@ public class ChatController {
 
     // ─── REST Endpoints ───────────────────────────────────────
 
+    // Konvo Talk: direct chat shuru karo bina match ke
+    // AuraLink ka createConversation (matchId based) UNTOUCHED hai
+    @PostMapping("/start")
+    public ResponseEntity<Conversation> startDirectConversation(
+            @RequestHeader("X-User-Id") String myUserId,
+            @RequestBody Map<String, String> body) {
+        String peerId = body.get("peerId");
+        if (peerId == null || peerId.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(
+                chatService.startDirectConversation(myUserId, peerId));
+    }
+
     @GetMapping
     public ResponseEntity<List<Conversation>> getConversations(
             @RequestHeader("X-User-Id") String userId) {
