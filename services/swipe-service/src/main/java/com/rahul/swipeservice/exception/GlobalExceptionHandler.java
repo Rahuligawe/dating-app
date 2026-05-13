@@ -11,8 +11,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(SwipeException.class)
     public ResponseEntity<Map<String, String>> handleSwipeException(
             SwipeException ex) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Map.of("error", ex.getMessage()));
+        // Return 429 for swipe limit so Android can detect it specifically
+        boolean isLimitError = ex.getMessage() != null
+                && ex.getMessage().contains("Daily swipe limit");
+        HttpStatus status = isLimitError ? HttpStatus.TOO_MANY_REQUESTS : HttpStatus.BAD_REQUEST;
+        return ResponseEntity.status(status)
+                .body(Map.of("error", ex.getMessage(), "code",
+                        isLimitError ? "SWIPE_LIMIT_REACHED" : "SWIPE_ERROR"));
     }
 
     @ExceptionHandler(Exception.class)
