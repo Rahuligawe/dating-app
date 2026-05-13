@@ -63,7 +63,9 @@ export interface UserSummary {
   profilePhotoUrl?: string
   isVerified: boolean
   isActive: boolean
+  isBlocked: boolean
   registeredAt: string
+  referralUsedCount: number
 }
 
 export interface UserDetail {
@@ -77,6 +79,8 @@ export interface UserDetail {
   photos: string[]
   interests: string[]
   isVerified: boolean
+  isActive: boolean
+  isBlocked: boolean
   mobile: string
   registeredAt: string
   totalLikes: number
@@ -307,8 +311,50 @@ export const createChatStream = (
   return () => controller.abort()
 }
 
+export interface ReferralUserDetail {
+  buyerUserId: string
+  buyerName: string
+  currentPlan: string
+  startDate: string
+  endDate: string
+  isActive: boolean
+  usedAt: string
+}
+
+export interface ReferralPlanStats {
+  totalUsed: number
+  premiumCount: number
+  ultraCount: number
+  usages: ReferralUserDetail[]
+}
+
+export interface SubscriptionHistoryEntry {
+  plan: string
+  paymentId: string
+  paymentProvider: string
+  startDate: string
+  endDate: string
+  isRenewal: boolean
+  purchasedAt: string
+}
+
+export const getReferralStats = (userId: string) =>
+  api.get<ReferralPlanStats>(`/admin/user/${userId}/referral-stats`).then(r => r.data)
+
+export const getSubscriptionHistory = (userId: string) =>
+  api.get<SubscriptionHistoryEntry[]>(`/admin/user/${userId}/subscription-history`).then(r => r.data)
+
 export const deleteUser = (userId: string) =>
   api.delete(`/admin/user/${userId}`).then(r => r.data)
+
+export const blockUser = (userId: string) =>
+  api.put(`/admin/user/${userId}/block`).then(r => r.data)
+
+export const unblockUser = (userId: string) =>
+  api.put(`/admin/user/${userId}/unblock`).then(r => r.data)
+
+export const restoreUser = (userId: string) =>
+  api.put(`/admin/user/${userId}/restore`).then(r => r.data)
 
 export const createUser = (name: string, mobile: string) =>
   api.post<UserSummary>('/admin/users', { name, mobile }).then(r => r.data)
@@ -319,3 +365,67 @@ export const deleteComment = (commentId: string) =>
 // Auth — calls existing auth-service
 export const loginAdmin = (mobile: string, otp: string) =>
   api.post('/auth/verify-otp', { mobile, otp }).then(r => r.data)
+
+// ── Sub-admin auth ─────────────────────────────────────────────────────────
+
+export const loginSubAdmin = (username: string, password: string) =>
+  api.post<{ token: string; adminId: string; displayName: string; username: string; permissions: string }>(
+    '/admin/auth/login', { username, password }
+  ).then(r => r.data)
+
+export const logoutSubAdmin = () =>
+  api.post('/admin/auth/logout').then(r => r.data)
+
+// ── Admin user management ──────────────────────────────────────────────────
+
+export interface AdminUserEntry {
+  id: string
+  username: string
+  displayName: string
+  isActive: boolean
+  isLocked: boolean
+  lastLoginAt: string | null
+  createdAt: string | null
+  createdBy: string
+  activeSessions: number
+  permissionsJson: string
+}
+
+export interface AdminSessionEntry {
+  id: string
+  adminUserId: string
+  ipAddress: string
+  deviceInfo: string
+  userAgent: string
+  loginAt: string
+  lastActiveAt: string
+  adminDisplayName?: string
+  adminUsername?: string
+}
+
+export const listAdminUsers = () =>
+  api.get<AdminUserEntry[]>('/admin/admins').then(r => r.data)
+
+export const createAdminUser = (username: string, password: string, displayName: string, permissionsJson: string) =>
+  api.post('/admin/admins', { username, password, displayName, permissionsJson }).then(r => r.data)
+
+export const updateAdminPermissions = (adminId: string, permissionsJson: string) =>
+  api.put(`/admin/admins/${adminId}/permissions`, { permissionsJson }).then(r => r.data)
+
+export const lockAdminUser = (adminId: string, reason: string) =>
+  api.put(`/admin/admins/${adminId}/lock`, { reason }).then(r => r.data)
+
+export const unlockAdminUser = (adminId: string) =>
+  api.put(`/admin/admins/${adminId}/unlock`).then(r => r.data)
+
+export const deactivateAdminUser = (adminId: string) =>
+  api.delete(`/admin/admins/${adminId}`).then(r => r.data)
+
+export const resetAdminPassword = (adminId: string, newPassword: string) =>
+  api.put(`/admin/admins/${adminId}/reset-password`, { newPassword }).then(r => r.data)
+
+export const getAllAdminSessions = () =>
+  api.get<AdminSessionEntry[]>('/admin/admins/sessions').then(r => r.data)
+
+export const revokeAdminSession = (sessionId: string) =>
+  api.delete(`/admin/admins/sessions/${sessionId}`).then(r => r.data)

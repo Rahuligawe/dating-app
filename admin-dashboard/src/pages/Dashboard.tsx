@@ -6,6 +6,7 @@ import {
 import { getStats, getGrowth, getRevenue, DashboardStats, UserGrowth, RevenueStats } from '../api/adminApi'
 import { Users, UserCheck, Wifi, TrendingUp, Heart, Zap, Star, DollarSign, LogOut } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { usePermissions } from '../hooks/usePermissions'
 
 const PLAN_COLORS: Record<string, string> = {
   FREE:    '#5C5A6E',

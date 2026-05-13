@@ -35,6 +35,11 @@ spring:
           max-active: 2
           time-between-eviction-runs: 300000
 
+admin:
+  jwt:
+    secret: ${JWT_SECRET:change-me-in-production-min-32-chars}
+    expiry-hours: 720
+
 chat:
   service:
     url: ${CHAT_SERVICE_URL:http://chat-service:8085}

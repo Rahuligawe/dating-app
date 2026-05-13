@@ -15,8 +15,17 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AuthException.class)
     public ResponseEntity<Map<String, String>> handleAuthException(AuthException ex) {
+        String msg = ex.getMessage();
+        if (msg != null && msg.startsWith("ACCOUNT_SUSPENDED:")) {
+            // Return 403 + errorCode so Android can show the suspension screen
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of(
+                            "error",     msg.substring("ACCOUNT_SUSPENDED:".length()).trim(),
+                            "errorCode", "ACCOUNT_SUSPENDED"
+                    ));
+        }
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(Map.of("error", ex.getMessage()));
+                .body(Map.of("error", msg != null ? msg : "Unauthorized"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

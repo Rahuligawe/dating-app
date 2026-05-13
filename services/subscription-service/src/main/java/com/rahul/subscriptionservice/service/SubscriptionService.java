@@ -1,9 +1,11 @@
 package com.rahul.subscriptionservice.service;
 
 import com.rahul.subscriptionservice.entity.SubscriptionPlan;
+import com.rahul.subscriptionservice.entity.SubscriptionPurchaseHistory;
 import com.rahul.subscriptionservice.entity.UserSubscription;
 import com.rahul.subscriptionservice.entity.UserSubscription.Plan;
 import com.rahul.subscriptionservice.repository.SubscriptionPlanRepository;
+import com.rahul.subscriptionservice.repository.SubscriptionPurchaseHistoryRepository;
 import com.rahul.subscriptionservice.repository.SubscriptionRepository;
 import com.rahul.subscriptionservice.stream.StreamPublisher;
 import lombok.RequiredArgsConstructor;
@@ -24,12 +26,13 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class SubscriptionService {
 
-    private final SubscriptionRepository     subscriptionRepository;
-    private final SubscriptionPlanRepository planRepository;
-    private final StreamPublisher            streamPublisher;
-    private final RedisTemplate<String, Object> redisTemplate;
-    private final ReferralService            referralService;
-    private final CashfreeService            cashfreeService;
+    private final SubscriptionRepository                subscriptionRepository;
+    private final SubscriptionPlanRepository            planRepository;
+    private final SubscriptionPurchaseHistoryRepository purchaseHistoryRepository;
+    private final StreamPublisher                       streamPublisher;
+    private final RedisTemplate<String, Object>         redisTemplate;
+    private final ReferralService                       referralService;
+    private final CashfreeService                       cashfreeService;
 
     // Prices from DB — fallback hardcoded
     public static final Map<Plan, Integer> MONTHLY_PRICES = Map.of(
@@ -280,6 +283,20 @@ public class SubscriptionService {
         sub.setIsActive(true);
         sub.setCancelledAt(null);
         UserSubscription saved = subscriptionRepository.save(sub);
+
+        // Track purchase history for admin dashboard
+        if (newPlan != Plan.FREE) {
+            boolean isRenewal = sub.getId() != null;
+            purchaseHistoryRepository.save(SubscriptionPurchaseHistory.builder()
+                    .userId(userId)
+                    .plan(newPlan)
+                    .paymentId(paymentId)
+                    .paymentProvider(paymentProvider)
+                    .startDate(saved.getStartDate())
+                    .endDate(saved.getEndDate())
+                    .isRenewal(isRenewal)
+                    .build());
+        }
 
         if (newPlan != Plan.FREE) {
             int ttlDays = yearly ? 366 : 32;

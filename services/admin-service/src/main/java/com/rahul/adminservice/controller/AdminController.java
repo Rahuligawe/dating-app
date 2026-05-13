@@ -1,8 +1,12 @@
 package com.rahul.adminservice.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rahul.adminservice.dto.AdminDtos.*;
+import com.rahul.adminservice.service.AdminAuthService;
 import com.rahul.adminservice.service.AdminService;
 import com.rahul.adminservice.service.ChatStreamService;
+import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -18,16 +22,91 @@ import java.util.Map;
 @CrossOrigin(origins = "*", allowedHeaders = "*")
 public class AdminController {
 
-    private final AdminService     adminService;
+    private final AdminService      adminService;
     private final ChatStreamService chatStreamService;
+    private final AdminAuthService  adminAuthService;
+    private final ObjectMapper      objectMapper;
+
+    // ── Permission context ────────────────────────────────────────────────────
+
+    private static class AdminCtx {
+        boolean superAdmin;
+        boolean canViewRevenue;
+        boolean canViewChats;
+        boolean canCreateUser;
+        boolean canDeleteUser;
+        boolean canManagePoints;
+
+        static AdminCtx superAdmin() {
+            AdminCtx ctx = new AdminCtx();
+            ctx.superAdmin = true;
+            ctx.canViewRevenue = ctx.canViewChats = ctx.canCreateUser =
+                    ctx.canDeleteUser = ctx.canManagePoints = true;
+            return ctx;
+        }
+
+        static AdminCtx fromPermissionsJson(String json, ObjectMapper mapper) {
+            AdminCtx ctx = new AdminCtx();
+            try {
+                JsonNode root = mapper.readTree(json);
+                ctx.canViewRevenue  = root.path("revenue").asBoolean(false)
+                        || root.path("dashboard").path("viewRevenue").asBoolean(false);
+                ctx.canViewChats    = root.path("users").path("viewChats").asBoolean(false);
+                ctx.canCreateUser   = root.path("users").path("create").asBoolean(false);
+                ctx.canDeleteUser   = root.path("users").path("delete").asBoolean(false);
+                ctx.canManagePoints = root.path("users").path("managePoints").asBoolean(false);
+            } catch (Exception ignored) {}
+            return ctx;
+        }
+    }
 
     // ── Auth check — called at the top of every admin endpoint ────────────────
 
-    private void requireAdmin(HttpServletRequest req) {
+    private AdminCtx requireAdmin(HttpServletRequest req) {
         String role = req.getHeader("X-User-Role");
-        if (!"ADMIN".equals(role)) {
-            throw new RuntimeException("Access Denied — ADMIN role required");
+        if ("ADMIN".equals(role)) {
+            String auth = req.getHeader("Authorization");
+            if (auth != null && auth.startsWith("Bearer ")) {
+                String token = auth.substring(7);
+                try {
+                    Claims claims = adminAuthService.parseClaims(token);
+                    String subAdminId = claims.get("sub_admin_id", String.class);
+                    if (subAdminId != null) {
+                        // Sub-admin — check revocation
+                        if (adminAuthService.isRevoked(token) || adminAuthService.isAdminRevoked(subAdminId)) {
+                            throw new RuntimeException("Session revoked. Please log in again.");
+                        }
+                        adminAuthService.updateLastActive(subAdminId, token);
+                        String permJson = claims.get("permissions", String.class);
+                        return AdminCtx.fromPermissionsJson(permJson, objectMapper);
+                    }
+                } catch (RuntimeException e) {
+                    throw e;
+                } catch (Exception ignored) {}
+            }
+            return AdminCtx.superAdmin(); // Super admin (OTP login) — full access
         }
+        throw new RuntimeException("Access Denied — ADMIN role required");
+    }
+
+    private void checkRevenue(AdminCtx ctx) {
+        if (!ctx.canViewRevenue) throw new RuntimeException("Access Denied — revenue permission required");
+    }
+
+    private void checkChats(AdminCtx ctx) {
+        if (!ctx.canViewChats) throw new RuntimeException("Access Denied — viewChats permission required");
+    }
+
+    private void checkManagePoints(AdminCtx ctx) {
+        if (!ctx.canManagePoints) throw new RuntimeException("Access Denied — managePoints permission required");
+    }
+
+    private void checkCreateUser(AdminCtx ctx) {
+        if (!ctx.canCreateUser) throw new RuntimeException("Access Denied — create user permission required");
+    }
+
+    private void checkDeleteUser(AdminCtx ctx) {
+        if (!ctx.canDeleteUser) throw new RuntimeException("Access Denied — delete user permission required");
     }
 
     // ── Exception mapping ─────────────────────────────────────────────────────
@@ -73,7 +152,7 @@ public class AdminController {
 
     @GetMapping("/api/admin/revenue")
     public ResponseEntity<RevenueStats> getRevenue(HttpServletRequest req) {
-        requireAdmin(req);
+        checkRevenue(requireAdmin(req));
         return ResponseEntity.ok(adminService.getRevenue());
     }
 
@@ -142,8 +221,24 @@ public class AdminController {
     public ResponseEntity<List<ChatSummary>> getUserChats(
             @PathVariable String userId,
             HttpServletRequest req) {
-        requireAdmin(req);
+        checkChats(requireAdmin(req));
         return ResponseEntity.ok(adminService.getUserChats(userId));
+    }
+
+    @GetMapping("/api/admin/user/{userId}/referral-stats")
+    public ResponseEntity<ReferralPlanStats> getReferralStats(
+            @PathVariable String userId,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        return ResponseEntity.ok(adminService.getReferralStats(userId));
+    }
+
+    @GetMapping("/api/admin/user/{userId}/subscription-history")
+    public ResponseEntity<List<SubscriptionHistoryEntry>> getSubscriptionHistory(
+            @PathVariable String userId,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        return ResponseEntity.ok(adminService.getSubscriptionHistory(userId));
     }
 
     @GetMapping("/api/admin/user/{userId}/post-engagements")
@@ -160,7 +255,7 @@ public class AdminController {
     public SseEmitter streamChatMessages(
             @PathVariable String conversationId,
             HttpServletRequest req) {
-        requireAdmin(req);
+        checkChats(requireAdmin(req));
         SseEmitter emitter = new SseEmitter(300_000L); // 5-minute timeout
         chatStreamService.addEmitter(conversationId, emitter);
         emitter.onCompletion(() -> chatStreamService.removeEmitter(conversationId, emitter));
@@ -177,7 +272,7 @@ public class AdminController {
             @PathVariable String conversationId,
             @RequestParam(defaultValue = "200") int limit,
             HttpServletRequest req) {
-        requireAdmin(req);
+        checkChats(requireAdmin(req));
         return ResponseEntity.ok(adminService.getChatMessages(conversationId, limit));
     }
 
@@ -186,7 +281,7 @@ public class AdminController {
             @PathVariable String userId,
             @RequestBody RewardPointsRequest request,
             HttpServletRequest req) {
-        requireAdmin(req);
+        checkManagePoints(requireAdmin(req));
         return ResponseEntity.ok(adminService.giveRewardPoints(userId, request.getAmount(), request.getReason()));
     }
 
@@ -195,7 +290,7 @@ public class AdminController {
             @PathVariable String userId,
             @RequestBody RewardPointsRequest request,
             HttpServletRequest req) {
-        requireAdmin(req);
+        checkManagePoints(requireAdmin(req));
         return ResponseEntity.ok(adminService.removePoints(userId, request.getAmount(), request.getReason()));
     }
 
@@ -212,7 +307,7 @@ public class AdminController {
             @PathVariable String fromUserId,
             @RequestBody GiftPointsRequest request,
             HttpServletRequest req) {
-        requireAdmin(req);
+        checkManagePoints(requireAdmin(req));
         return ResponseEntity.ok(adminService.giftPoints(
                 fromUserId, request.getRecipientReferralCode(), request.getAmount(), request.getReason()));
     }
@@ -249,16 +344,43 @@ public class AdminController {
     public ResponseEntity<Map<String, String>> deleteUser(
             @PathVariable String userId,
             HttpServletRequest req) {
-        requireAdmin(req);
+        checkDeleteUser(requireAdmin(req));
         adminService.deleteUser(userId);
         return ResponseEntity.ok(Map.of("status", "deleted", "userId", userId));
+    }
+
+    @PutMapping("/api/admin/user/{userId}/block")
+    public ResponseEntity<Map<String, String>> blockUser(
+            @PathVariable String userId,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        adminService.blockUser(userId);
+        return ResponseEntity.ok(Map.of("status", "blocked", "userId", userId));
+    }
+
+    @PutMapping("/api/admin/user/{userId}/unblock")
+    public ResponseEntity<Map<String, String>> unblockUser(
+            @PathVariable String userId,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        adminService.unblockUser(userId);
+        return ResponseEntity.ok(Map.of("status", "unblocked", "userId", userId));
+    }
+
+    @PutMapping("/api/admin/user/{userId}/restore")
+    public ResponseEntity<Map<String, String>> restoreUser(
+            @PathVariable String userId,
+            HttpServletRequest req) {
+        requireAdmin(req);
+        adminService.restoreUser(userId);
+        return ResponseEntity.ok(Map.of("status", "restored", "userId", userId));
     }
 
     @PostMapping("/api/admin/users")
     public ResponseEntity<UserSummary> createUser(
             @RequestBody CreateUserRequest request,
             HttpServletRequest req) {
-        requireAdmin(req);
+        checkCreateUser(requireAdmin(req));
         return ResponseEntity.ok(adminService.createUser(request.getName(), request.getMobile()));
     }
 
