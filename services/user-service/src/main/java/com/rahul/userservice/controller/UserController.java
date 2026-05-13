@@ -45,6 +45,25 @@ public class UserController {
         return ResponseEntity.ok().build();
     }
 
+    // ─── Internal: check if a user is blocked/active — called by auth-service ──
+    @GetMapping("/internal/{userId}/status")
+    public ResponseEntity<Map<String, Object>> getUserStatus(
+            @PathVariable String userId,
+            @RequestHeader(value = "X-Internal-Secret", required = false) String secret) {
+        if (!"auralink-internal-2024".equals(secret)) {
+            return ResponseEntity.status(403).build();
+        }
+        return userService.getUserRepository().findById(userId)
+                .map(p -> {
+                    Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("isActive",  Boolean.TRUE.equals(p.getIsActive()));
+                    m.put("isBlocked", Boolean.TRUE.equals(p.getIsBlocked()));
+                    m.put("userId",    userId);
+                    return ResponseEntity.ok(m);
+                })
+                .orElse(ResponseEntity.ok(Map.of("isActive", true, "isBlocked", false, "userId", userId)));
+    }
+
     // userId comes from JWT via Gateway header
     @GetMapping("/me")
     public ResponseEntity<UserProfileResponse> getMyProfile(@RequestHeader("X-User-Id") String userId) {

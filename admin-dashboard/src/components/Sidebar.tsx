@@ -1,20 +1,39 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Users, DollarSign, LogOut, Heart } from 'lucide-react'
-
-const NAV = [
-  { to: '/',        label: 'Dashboard',       icon: LayoutDashboard },
-  { to: '/users',   label: 'User Management', icon: Users },
-  { to: '/revenue', label: 'Revenue',         icon: DollarSign },
-]
+import { LayoutDashboard, Users, DollarSign, LogOut, Heart, ShieldCheck } from 'lucide-react'
+import { usePermissions } from '../hooks/usePermissions'
+import { logoutSubAdmin } from '../api/adminApi'
+import { jwtDecode } from 'jwt-decode'
 
 export default function Sidebar() {
-  const navigate = useNavigate()
+  const navigate    = useNavigate()
+  const perms       = usePermissions()
 
-  function logout() {
+  const isSubAdmin  = !perms.isSuperAdmin
+
+  async function logout() {
+    if (isSubAdmin) {
+      try { await logoutSubAdmin() } catch { /* ignore */ }
+    }
     localStorage.removeItem('admin_token')
     localStorage.removeItem('admin_role')
     navigate('/login')
   }
+
+  let displayName = ''
+  try {
+    const token = localStorage.getItem('admin_token')
+    if (token) {
+      const dec: any = jwtDecode(token)
+      displayName = dec.name || dec.username || ''
+    }
+  } catch { /* ignore */ }
+
+  const navItems = [
+    { to: '/',        label: 'Dashboard',       icon: LayoutDashboard, show: true },
+    { to: '/users',   label: 'User Management', icon: Users,           show: true },
+    { to: '/revenue', label: 'Revenue',         icon: DollarSign,      show: perms.revenue || perms.isSuperAdmin },
+    { to: '/admin-users', label: 'Admin Users', icon: ShieldCheck,     show: perms.canManageAdmins || perms.isSuperAdmin },
+  ]
 
   return (
     <aside className="w-56 bg-[#1E1E35] flex flex-col h-full shrink-0">
@@ -27,9 +46,16 @@ export default function Sidebar() {
         <span className="text-xs text-purple-300 ml-auto font-medium">Admin</span>
       </div>
 
+      {/* User badge */}
+      {displayName && (
+        <div style={{ padding: '10px 20px 0', fontSize: 11, color: '#8A8799' }}>
+          Logged in as <span style={{ color: '#C9A96E', fontWeight: 600 }}>{displayName}</span>
+        </div>
+      )}
+
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {NAV.map(({ to, label, icon: Icon }) => (
+        {navItems.filter(n => n.show).map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}

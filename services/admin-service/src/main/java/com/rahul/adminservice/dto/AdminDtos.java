@@ -70,9 +70,11 @@ public class AdminDtos {
         private String  city;
         private String  subscriptionType;
         private String  profilePhotoUrl;
-        private boolean isVerified;
-        private boolean isActive;
+        private Boolean isVerified;
+        private Boolean isActive;
+        private Boolean isBlocked;
         private String  registeredAt;
+        private long    referralUsedCount;
     }
 
     // ── User Detail ───────────────────────────────────────────────────────────
@@ -88,7 +90,8 @@ public class AdminDtos {
         private String       subscriptionType;
         private List<String> photos;
         private List<String> interests;
-        private boolean      isVerified;
+        private Boolean      isVerified;
+        private Boolean      isActive;
         private String       mobile;
         private String       registeredAt;
         // Swipe activity
@@ -106,6 +109,8 @@ public class AdminDtos {
         private double pointsBalance;
         // Referral
         private String referralCode;
+        // Status
+        private Boolean isBlocked;
     }
 
     // ── Mood Post ─────────────────────────────────────────────────────────────
@@ -295,5 +300,39 @@ public class AdminDtos {
         private double        avgWatchTimeSeconds;
         private long          totalWatchTimeHours;
         private List<RegionStat> byRegion;
+    }
+
+    // ── Referral Plan Stats (breakdown of who used this user's code) ──────────
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class ReferralPlanStats {
+        private long   totalUsed;
+        private long   premiumCount;
+        private long   ultraCount;
+        private List<ReferralUserDetail> usages;
+    }
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class ReferralUserDetail {
+        private String buyerUserId;
+        private String buyerName;
+        private String currentPlan;
+        private String startDate;
+        private String endDate;
+        private boolean isActive;
+        private String usedAt;
+    }
+
+    // ── Subscription Purchase History ──────────────────────────────────────────
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class SubscriptionHistoryEntry {
+        private String  plan;
+        private String  paymentId;
+        private String  paymentProvider;
+        private String  startDate;
+        private String  endDate;
+        private boolean isRenewal;
+        private String  purchasedAt;
     }
 }

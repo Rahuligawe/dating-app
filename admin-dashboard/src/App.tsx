@@ -5,6 +5,7 @@ import UserManagement from './pages/UserManagement'
 import UserProfile from './pages/UserProfile'
 import Revenue from './pages/Revenue'
 import Login from './pages/Login'
+import AdminUsers from './pages/AdminUsers'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const token = localStorage.getItem('admin_token')
@@ -24,11 +25,12 @@ export default function App() {
               <Sidebar />
               <main className="flex-1 overflow-y-auto bg-[#F0F2F8]">
                 <Routes>
-                  <Route path="/"        element={<Dashboard />} />
-                  <Route path="/users"   element={<UserManagement />} />
-                  <Route path="/user/:id" element={<UserProfile />} />
-                  <Route path="/revenue" element={<Revenue />} />
-                  <Route path="*"        element={<Navigate to="/" replace />} />
+                  <Route path="/"             element={<Dashboard />} />
+                  <Route path="/users"         element={<UserManagement />} />
+                  <Route path="/user/:id"      element={<UserProfile />} />
+                  <Route path="/revenue"       element={<Revenue />} />
+                  <Route path="/admin-users"   element={<AdminUsers />} />
+                  <Route path="*"             element={<Navigate to="/" replace />} />
                 </Routes>
               </main>
             </div>

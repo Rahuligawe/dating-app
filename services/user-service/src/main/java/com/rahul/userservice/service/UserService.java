@@ -26,6 +26,8 @@ import java.util.concurrent.TimeUnit;
 public class UserService {
 
     private final UserProfileRepository userProfileRepository;
+
+    public UserProfileRepository getUserRepository() { return userProfileRepository; }
     private final PhotoUploadService photoUploadService;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final RedisTemplate<String, Object> redisTemplate;

@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import {
   getUserDetail, getUserPosts, getUserSwipes, getUserPostInteractions,
   getUserMatches, getUserChats, getUserPostEngagements, giveRewardPoints,
   getChatMessages, removePoints, getUserByReferralCode, giftPoints,
   getDailyStats, getWhoSwipedUser, getSessionStats, createChatStream, deleteComment,
+  getReferralStats, getSubscriptionHistory, blockUser, unblockUser, restoreUser,
   UserDetail, MoodPost, SwipeActivity, PostInteraction, MatchInfo,
   ChatSummary, PostEngagement, ChatMessage, DailyStat, SessionDailyStat,
+  ReferralPlanStats, ReferralUserDetail, SubscriptionHistoryEntry,
 } from '../api/adminApi'
 import {
   ArrowLeft, Heart, HeartCrack, Zap, Users, FileText,
@@ -214,6 +217,15 @@ export default function UserProfile() {
 
   const [deletingComment, setDeletingComment] = useState<string | null>(null)
 
+  // Referral stats + subscription history
+  const [referralStats,    setReferralStats]    = useState<ReferralPlanStats | null>(null)
+  const [subHistory,       setSubHistory]       = useState<SubscriptionHistoryEntry[]>([])
+  const [showSubHistory,   setShowSubHistory]   = useState(false)
+  const [referralFilter,   setReferralFilter]   = useState<'ALL' | 'PREMIUM' | 'ULTRA'>('ALL')
+  const [showReferralList, setShowReferralList] = useState(false)
+  const [blockLoading,     setBlockLoading]     = useState(false)
+  const [showBlockConfirm, setShowBlockConfirm] = useState(false)
+
   useEffect(() => {
     if (!id) return
     setLoading(true)
@@ -228,6 +240,10 @@ export default function UserProfile() {
       setDailyStats(ds); setSessionStats(ss)
     }).catch(err => setError(err?.response?.data?.error || 'User not found'))
       .finally(() => setLoading(false))
+
+    // Load referral stats and subscription history in background
+    getReferralStats(id).then(setReferralStats).catch(() => {})
+    getSubscriptionHistory(id).then(setSubHistory).catch(() => {})
   }, [id])
 
   useEffect(() => { if (id) getUserPosts(id, postSort).then(setPosts).catch(console.error) }, [id, postSort])
@@ -355,6 +371,37 @@ export default function UserProfile() {
     } catch (e: any) {
       setGiftMsg('✗ ' + (e?.response?.data?.error || 'Gift failed'))
     } finally { setGiftLoading(false) }
+  }
+
+  const handleBlockToggle = () => {
+    if (!detail || blockLoading) return
+    // If user is deleted (is_active=false), toggle = restore
+    if (!detail.isActive) {
+      setShowBlockConfirm(true)
+      return
+    }
+    setShowBlockConfirm(true)
+  }
+
+  const confirmBlockToggle = async () => {
+    if (!detail) return
+    setShowBlockConfirm(false)
+    setBlockLoading(true)
+    try {
+      if (!detail.isActive) {
+        // Restore deleted user
+        await restoreUser(detail.userId)
+        setDetail(d => d ? { ...d, isActive: true } : d)
+      } else if (detail.isBlocked) {
+        await unblockUser(detail.userId)
+        setDetail(d => d ? { ...d, isBlocked: false } : d)
+      } else {
+        await blockUser(detail.userId)
+        setDetail(d => d ? { ...d, isBlocked: true } : d)
+      }
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Action failed')
+    } finally { setBlockLoading(false) }
   }
 
   const handleDeleteComment = async (commentId: string) => {
@@ -529,6 +576,7 @@ export default function UserProfile() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 30, fontWeight: 600, color: S.text, lineHeight: 1, margin: 0 }}>{detail.name || '—'}</h2>
                     {detail.isVerified && <ShieldCheck size={16} color={S.blue} />}
+                    {detail.isBlocked && <span style={{ fontSize: 11, fontWeight: 700, color: '#E05C6B', background: 'rgba(224,92,107,0.15)', border: '1px solid rgba(224,92,107,0.3)', borderRadius: 6, padding: '2px 8px' }}>BLOCKED</span>}
                   </div>
                   <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                     <DarkBadge color={planConfig.color}>{planConfig.label}</DarkBadge>
@@ -548,16 +596,16 @@ export default function UserProfile() {
                 </div>
               </div>
 
-              {/* Info grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+              {/* Info grid — compact 2-col, Phone|Age row then Location|Joined row */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto auto', columnGap: 20, rowGap: 8, marginBottom: 14, justifyContent: 'start' }}>
                 {[
                   { icon: '📱', label: 'Phone', value: detail.mobile || '—' },
-                  { icon: '📍', label: 'Location', value: detail.city || '—' },
                   { icon: '🎂', label: 'Age', value: detail.age ? `${detail.age} years` : '—' },
+                  { icon: '📍', label: 'Location', value: detail.city || '—' },
                   { icon: '📅', label: 'Joined', value: detail.registeredAt ? new Date(detail.registeredAt).toLocaleDateString() : '—' },
                 ].map(row => (
                   <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 28, height: 28, background: '#1C1C28', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>{row.icon}</div>
+                    <div style={{ width: 26, height: 26, background: '#1C1C28', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, flexShrink: 0 }}>{row.icon}</div>
                     <div>
                       <p style={{ fontSize: 10, color: S.muted2, marginBottom: 1 }}>{row.label}</p>
                       <p style={{ fontSize: 13, color: S.muted }}>{row.value}</p>
@@ -566,7 +614,76 @@ export default function UserProfile() {
                 ))}
               </div>
 
-              <p style={{ fontSize: 10, color: S.muted2, fontFamily: 'monospace', marginBottom: 10 }}>ID: {detail.userId}</p>
+              {/* Referral Pie Chart — after Location/Joined */}
+              {referralStats && referralStats.totalUsed > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: '#16161F', borderRadius: 12, padding: '10px 14px', marginBottom: 12, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.05)' }}
+                  onClick={() => setShowReferralList(true)}>
+                  <div style={{ width: 72, height: 72, flexShrink: 0 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={[
+                          { name: 'PREMIUM', value: referralStats.premiumCount || 0 },
+                          { name: 'ULTRA',   value: referralStats.ultraCount   || 0 },
+                          { name: 'FREE',    value: Math.max(0, referralStats.totalUsed - referralStats.premiumCount - referralStats.ultraCount) },
+                        ].filter(d => d.value > 0)}
+                          cx="50%" cy="50%" innerRadius={20} outerRadius={34}
+                          dataKey="value" stroke="none">
+                          <Cell fill="#9B7FE8" />
+                          <Cell fill="#F59E0B" />
+                          <Cell fill="#5C5A6E" />
+                        </Pie>
+                        <Tooltip contentStyle={{ background: '#111118', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 10, color: S.muted2, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 4 }}>Referral Code Usage</p>
+                    <p style={{ fontSize: 16, fontWeight: 700, color: S.text, fontFamily: "'Cormorant Garamond', serif" }}>{referralStats.totalUsed} users</p>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
+                      {referralStats.premiumCount > 0 && <span style={{ fontSize: 11, color: '#9B7FE8' }}>● {referralStats.premiumCount} Premium</span>}
+                      {referralStats.ultraCount   > 0 && <span style={{ fontSize: 11, color: '#F59E0B' }}>● {referralStats.ultraCount} Ultra</span>}
+                      {referralStats.totalUsed - referralStats.premiumCount - referralStats.ultraCount > 0 && (
+                        <span style={{ fontSize: 11, color: S.muted2 }}>● {referralStats.totalUsed - referralStats.premiumCount - referralStats.ultraCount} Free</span>
+                      )}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11, color: S.muted2, flexShrink: 0 }}>View →</span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                <p style={{ fontSize: 10, color: S.muted2, fontFamily: 'monospace' }}>ID: {detail.userId}</p>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button onClick={() => setShowSubHistory(true)} style={{ fontSize: 11, color: S.accent, background: 'rgba(201,169,110,0.1)', border: '1px solid rgba(201,169,110,0.25)', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    📋 Subscription History
+                  </button>
+                  {/* Status toggle: Deleted / Blocked / Active */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#1C1C28', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '6px 12px' }}>
+                    <span style={{ fontSize: 11, color: !detail.isActive ? S.muted2 : detail.isBlocked ? '#E05C6B' : '#4ECFA0', fontWeight: 600, minWidth: 54 }}>
+                      {!detail.isActive ? 'Deleted' : detail.isBlocked ? 'Blocked' : 'Active'}
+                    </span>
+                    <div
+                      onClick={blockLoading ? undefined : handleBlockToggle}
+                      title={!detail.isActive ? 'Click to restore user' : detail.isBlocked ? 'Click to unblock' : 'Click to block'}
+                      style={{
+                        width: 42, height: 22, borderRadius: 11,
+                        background: !detail.isActive ? '#5C5A6E' : detail.isBlocked ? '#E05C6B' : '#4ECFA0',
+                        position: 'relative', cursor: blockLoading ? 'not-allowed' : 'pointer',
+                        transition: 'background 0.3s', opacity: blockLoading ? 0.5 : 1,
+                        flexShrink: 0
+                      }}
+                    >
+                      <div style={{
+                        position: 'absolute', top: 3,
+                        left: (!detail.isActive || detail.isBlocked) ? 22 : 3,
+                        width: 16, height: 16, borderRadius: '50%',
+                        background: '#fff', transition: 'left 0.3s',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.3)'
+                      }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               {detail.bio && (
                 <div style={{ background: '#1C1C28', borderRadius: 10, padding: '10px 14px', borderLeft: `2px solid ${S.accent}`, marginBottom: 12 }}>
@@ -964,6 +1081,127 @@ export default function UserProfile() {
           )}
         </div>
       </div>
+
+      {/* ── Subscription History Modal ── */}
+      {showSubHistory && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setShowSubHistory(false)}>
+          <div style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, width: 560, maxWidth: '92vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 600, color: S.text, margin: 0 }}>Subscription History</h3>
+              <button onClick={() => setShowSubHistory(false)} style={{ background: 'transparent', border: 'none', color: S.muted2, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '16px 24px' }}>
+              {subHistory.length === 0 ? (
+                <p style={{ color: S.muted2, fontSize: 13, textAlign: 'center', padding: '24px 0' }}>No purchase history found</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {subHistory.map((entry, i) => {
+                    const planColor = entry.plan === 'ULTRA' ? '#F59E0B' : entry.plan === 'PREMIUM' ? S.violet : S.muted
+                    return (
+                      <div key={i} style={{ background: '#16161F', borderRadius: 12, padding: '14px 16px', border: `1px solid rgba(255,255,255,0.06)` }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ background: `${planColor}18`, color: planColor, border: `1px solid ${planColor}33`, borderRadius: 20, fontSize: 11, fontWeight: 600, padding: '3px 10px', textTransform: 'uppercase' }}>{entry.plan}</span>
+                            {entry.isRenewal && <span style={{ fontSize: 10, color: S.blue, background: 'rgba(91,158,240,0.1)', borderRadius: 20, padding: '2px 8px', border: '1px solid rgba(91,158,240,0.2)' }}>Renewal</span>}
+                          </div>
+                          <span style={{ fontSize: 11, color: S.muted2 }}>{entry.purchasedAt ? new Date(entry.purchasedAt).toLocaleDateString() : '—'}</span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                          <div><p style={{ fontSize: 10, color: S.muted2 }}>Start Date</p><p style={{ fontSize: 12, color: S.muted }}>{entry.startDate ? new Date(entry.startDate).toLocaleDateString() : '—'}</p></div>
+                          <div><p style={{ fontSize: 10, color: S.muted2 }}>Expiry Date</p><p style={{ fontSize: 12, color: S.muted }}>{entry.endDate ? new Date(entry.endDate).toLocaleDateString() : '—'}</p></div>
+                          <div><p style={{ fontSize: 10, color: S.muted2 }}>Payment Via</p><p style={{ fontSize: 12, color: S.muted }}>{entry.paymentProvider || '—'}</p></div>
+                          <div><p style={{ fontSize: 10, color: S.muted2 }}>Payment ID</p><p style={{ fontSize: 11, color: S.muted2, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.paymentId || '—'}</p></div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Referral Users List Modal ── */}
+      {showReferralList && referralStats && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setShowReferralList(false)}>
+          <div style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, width: 620, maxWidth: '92vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <h3 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 600, color: S.text, margin: 0 }}>Referral Code Users</h3>
+                <p style={{ fontSize: 12, color: S.muted2, marginTop: 2 }}>{referralStats.totalUsed} users used {detail.referralCode}</p>
+              </div>
+              <button onClick={() => setShowReferralList(false)} style={{ background: 'transparent', border: 'none', color: S.muted2, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
+            </div>
+            {/* Filter tabs */}
+            <div style={{ padding: '12px 24px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', gap: 8 }}>
+              {(['ALL', 'PREMIUM', 'ULTRA'] as const).map(f => (
+                <button key={f} onClick={() => setReferralFilter(f)} style={{ padding: '5px 14px', borderRadius: 20, fontSize: 11, fontWeight: 600, border: 'none', cursor: 'pointer', background: referralFilter === f ? S.accent : 'rgba(255,255,255,0.06)', color: referralFilter === f ? '#fff' : S.muted }}>
+                  {f}
+                </button>
+              ))}
+            </div>
+            <div style={{ overflowY: 'auto', padding: '12px 24px' }}>
+              {(() => {
+                const filtered = referralStats.usages.filter(u => referralFilter === 'ALL' || u.currentPlan === referralFilter)
+                if (filtered.length === 0) return <p style={{ color: S.muted2, fontSize: 13, textAlign: 'center', padding: '24px 0' }}>No users found</p>
+                return filtered.map((u: ReferralUserDetail, i: number) => {
+                  const planColor = u.currentPlan === 'ULTRA' ? '#F59E0B' : u.currentPlan === 'PREMIUM' ? S.violet : S.muted
+                  return (
+                    <div key={i} className="row-hover" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }} onClick={() => { navigate(`/user/${u.buyerUserId}`); setShowReferralList(false) }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#C9A96E,#A0784A)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, color: '#fff', flexShrink: 0 }}>{u.buyerName?.charAt(0)?.toUpperCase() || '?'}</div>
+                        <div>
+                          <p style={{ fontSize: 13, fontWeight: 500, color: S.text }}>{u.buyerName}</p>
+                          <p style={{ fontSize: 10, color: S.muted2, fontFamily: 'monospace' }}>{u.buyerUserId.slice(0, 8)}…</p>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+                        <div style={{ textAlign: 'right' }}>
+                          <p style={{ fontSize: 10, color: S.muted2 }}>Expires</p>
+                          <p style={{ fontSize: 11, color: S.muted }}>{u.endDate ? new Date(u.endDate).toLocaleDateString() : '—'}</p>
+                        </div>
+                        <span style={{ background: `${planColor}18`, color: planColor, border: `1px solid ${planColor}33`, borderRadius: 20, fontSize: 10, fontWeight: 600, padding: '3px 8px' }}>{u.currentPlan}</span>
+                        <span style={{ fontSize: 11, color: u.isActive ? S.green : S.muted2 }}>{u.isActive ? '● Active' : '● Inactive'}</span>
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Block / Restore Confirmation Modal */}
+      {showBlockConfirm && detail && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setShowBlockConfirm(false)}>
+          <div style={{ background: '#111118', border: `1px solid ${!detail.isActive ? 'rgba(201,169,110,0.3)' : detail.isBlocked ? 'rgba(78,207,160,0.3)' : 'rgba(224,92,107,0.3)'}`, borderRadius: 20, width: 420, maxWidth: '90%', padding: '28px 24px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: !detail.isActive ? 'rgba(201,169,110,0.15)' : detail.isBlocked ? 'rgba(78,207,160,0.15)' : 'rgba(224,92,107,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
+                {!detail.isActive ? '↩' : detail.isBlocked ? '✓' : '⊘'}
+              </div>
+              <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 600, color: S.text, margin: 0 }}>
+                {!detail.isActive ? 'Restore User?' : detail.isBlocked ? 'Unblock User?' : 'Block User?'}
+              </h2>
+            </div>
+            <p style={{ fontSize: 13, color: S.muted, marginBottom: 20, lineHeight: 1.6 }}>
+              {!detail.isActive
+                ? <>Are you sure you want to restore <strong style={{ color: S.text }}>{detail.name}</strong>? Their account will become active again.</>
+                : detail.isBlocked
+                  ? <>Are you sure you want to unblock <strong style={{ color: S.text }}>{detail.name}</strong>? They will be able to log into the app again.</>
+                  : <>Are you sure you want to block <strong style={{ color: S.text }}>{detail.name}</strong>? They will be suspended from the app and shown an account suspension message.</>
+              }
+            </p>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button onClick={() => setShowBlockConfirm(false)} style={{ flex: 1, background: 'transparent', border: `1px solid ${S.border}`, borderRadius: 10, padding: '10px', fontSize: 13, color: S.muted, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={confirmBlockToggle} style={{ flex: 1, background: !detail.isActive ? 'rgba(201,169,110,0.15)' : detail.isBlocked ? 'rgba(78,207,160,0.15)' : 'rgba(224,92,107,0.15)', border: `1px solid ${!detail.isActive ? 'rgba(201,169,110,0.4)' : detail.isBlocked ? 'rgba(78,207,160,0.4)' : 'rgba(224,92,107,0.4)'}`, borderRadius: 10, padding: '10px', fontSize: 13, fontWeight: 600, color: !detail.isActive ? S.accent : detail.isBlocked ? S.green : S.red, cursor: 'pointer' }}>
+                Confirm {!detail.isActive ? 'Restore' : detail.isBlocked ? 'Unblock' : 'Block'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

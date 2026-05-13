@@ -76,6 +76,9 @@ public class UserProfile {
     private Boolean isActive = true;
 
     @Builder.Default
+    private Boolean isBlocked = false;
+
+    @Builder.Default
     private Boolean isProfileComplete = false;
 
     // ─── Device & App Source (Konvo Talk + AuraLink) ──────────────────────────

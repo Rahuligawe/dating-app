@@ -3,6 +3,7 @@ package com.rahul.adminservice.service;
 import com.rahul.adminservice.dto.AdminDtos.*;
 import com.rahul.adminservice.entity.AdImpression;
 import com.rahul.adminservice.repository.AdImpressionRepository;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -76,6 +77,20 @@ public class AdminService {
         this.redisTemplate = redisTemplate;
         this.adRepo        = adRepo;
         this.sessionRepo   = sessionRepo;
+    }
+
+    @PostConstruct
+    public void initSchema() {
+        try {
+            writeUserJdbc.execute(
+                "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE");
+            // Restore any users who were wrongly set to is_active=false via blockUser (old code)
+            // They should have is_blocked=true and is_active=true
+            writeUserJdbc.execute(
+                "UPDATE user_profiles SET is_blocked = false WHERE is_blocked IS NULL");
+        } catch (Exception e) {
+            log.warn("initSchema: {}", e.getMessage());
+        }
     }
 
     // ── Dashboard Stats ─────────────────────────────────────────────────────────
@@ -172,24 +187,32 @@ public class AdminService {
         String sql;
         Object[] params;
 
+        final String cols = "id, name, age, gender, city, subscription_type, is_verified, is_active, COALESCE(is_blocked, false) AS is_blocked, created_at";
         if (search != null && !search.isBlank()) {
-            sql = "SELECT id, name, age, gender, city, subscription_type, is_verified, is_active, created_at " +
-                  "FROM user_profiles WHERE (name ILIKE ? OR id::text = ?) " +
+            sql = "SELECT " + cols + " FROM user_profiles WHERE (name ILIKE ? OR id::text = ?) " +
                   "ORDER BY created_at DESC LIMIT ? OFFSET ?";
             params = new Object[]{"%" + search + "%", search, size, offset};
+        } else if ("BLOCKED".equals(plan)) {
+            sql = "SELECT " + cols + " FROM user_profiles WHERE COALESCE(is_blocked, false) = true " +
+                  "ORDER BY created_at DESC LIMIT ? OFFSET ?";
+            params = new Object[]{size, offset};
+        } else if ("DELETED".equals(plan)) {
+            sql = "SELECT " + cols + " FROM user_profiles WHERE is_active = false AND COALESCE(is_blocked, false) = false " +
+                  "ORDER BY created_at DESC LIMIT ? OFFSET ?";
+            params = new Object[]{size, offset};
         } else if (plan != null && !plan.isBlank() && !"ALL".equals(plan)) {
-            sql = "SELECT id, name, age, gender, city, subscription_type, is_verified, is_active, created_at " +
-                  "FROM user_profiles WHERE subscription_type = ? AND is_active = true " +
+            sql = "SELECT " + cols + " FROM user_profiles WHERE subscription_type = ? " +
+                  "AND is_active = true AND COALESCE(is_blocked, false) = false " +
                   "ORDER BY created_at DESC LIMIT ? OFFSET ?";
             params = new Object[]{plan, size, offset};
         } else {
-            sql = "SELECT id, name, age, gender, city, subscription_type, is_verified, is_active, created_at " +
-                  "FROM user_profiles WHERE is_active = true " +
+            // ALL — active, non-blocked users only
+            sql = "SELECT " + cols + " FROM user_profiles WHERE is_active = true AND COALESCE(is_blocked, false) = false " +
                   "ORDER BY created_at DESC LIMIT ? OFFSET ?";
             params = new Object[]{size, offset};
         }
 
-        return userJdbc.query(sql, params, (rs, rn) -> UserSummary.builder()
+        List<UserSummary> users = userJdbc.query(sql, params, (rs, rn) -> UserSummary.builder()
                 .userId(rs.getString("id"))
                 .name(rs.getString("name"))
                 .age(rs.getObject("age", Integer.class))
@@ -198,8 +221,19 @@ public class AdminService {
                 .subscriptionType(rs.getString("subscription_type"))
                 .isVerified(rs.getBoolean("is_verified"))
                 .isActive(rs.getBoolean("is_active"))
+                .isBlocked(rs.getBoolean("is_blocked"))
                 .registeredAt(Objects.toString(rs.getObject("created_at"), ""))
                 .build());
+
+        // Enrich with referral used count
+        for (UserSummary u : users) {
+            long count = qLong(subJdbc,
+                "SELECT COUNT(*) FROM referral_usages ru " +
+                "JOIN referral_codes rc ON rc.code = ru.code " +
+                "WHERE rc.owner_user_id = ?", u.getUserId());
+            u.setReferralUsedCount(count);
+        }
+        return users;
     }
 
     // ── User Detail ──────────────────────────────────────────────────────────────
@@ -265,6 +299,9 @@ public class AdminService {
                     "SELECT code FROM referral_codes WHERE user_id::text = ?", String.class, userId);
         } catch (Exception ignored) {}
 
+        boolean isBlocked = Boolean.TRUE.equals(profile.get("is_blocked"));
+        boolean isActive  = !Boolean.FALSE.equals(profile.get("is_active")); // default true if null
+
         return UserDetail.builder()
                 .userId(userId)
                 .name((String) profile.get("name"))
@@ -276,6 +313,8 @@ public class AdminService {
                 .photos(photos)
                 .interests(interests)
                 .isVerified(Boolean.TRUE.equals(profile.get("is_verified")))
+                .isActive(isActive)
+                .isBlocked(isBlocked)
                 .mobile(mobile)
                 .registeredAt(registeredAt)
                 .totalLikes(likes).totalDislikes(dislikes).totalSuperLikes(superLikes)
@@ -734,6 +773,22 @@ public class AdminService {
         try { redisTemplate.delete("presence:" + userId); } catch (Exception ignored) {}
     }
 
+    // ── Block / Unblock User ─────────────────────────────────────────────────────
+
+    public void blockUser(String userId) {
+        writeUserJdbc.update("UPDATE user_profiles SET is_blocked = true WHERE id::text = ?", userId);
+        try { redisTemplate.delete("presence:" + userId); } catch (Exception ignored) {}
+    }
+
+    public void unblockUser(String userId) {
+        writeUserJdbc.update("UPDATE user_profiles SET is_blocked = false WHERE id::text = ?", userId);
+    }
+
+    // ── Restore User (undo soft delete — sets is_active = true) ─────────────────
+    public void restoreUser(String userId) {
+        writeUserJdbc.update("UPDATE user_profiles SET is_active = true WHERE id::text = ?", userId);
+    }
+
     // ── Create User (admin-initiated — minimal profile) ───────────────────────────
 
     public UserSummary createUser(String name, String mobile) {
@@ -754,6 +809,148 @@ public class AdminService {
                 .isVerified(false).isActive(true)
                 .registeredAt(LocalDateTime.now().toString())
                 .build();
+    }
+
+    // ── Referral Plan Stats ──────────────────────────────────────────────────────
+
+    public ReferralPlanStats getReferralStats(String userId) {
+        // Get the referral code for this user
+        String referralCode = "";
+        try {
+            referralCode = subJdbc.queryForObject(
+                    "SELECT code FROM referral_codes WHERE owner_user_id = ?", String.class, userId);
+        } catch (Exception ignored) {}
+
+        if (referralCode.isBlank()) {
+            return ReferralPlanStats.builder()
+                    .totalUsed(0).premiumCount(0).ultraCount(0)
+                    .usages(List.of()).build();
+        }
+
+        final String code = referralCode;
+
+        // Get all usages of this referral code
+        List<Map<String, Object>> usageRows = subJdbc.queryForList(
+                "SELECT buyer_user_id, used_at FROM referral_usages WHERE code = ? ORDER BY used_at DESC", code);
+
+        long premiumCount = 0, ultraCount = 0;
+        List<ReferralUserDetail> details = new ArrayList<>();
+
+        for (Map<String, Object> row : usageRows) {
+            String buyerId = Objects.toString(row.get("buyer_user_id"), "");
+            String usedAt  = Objects.toString(row.get("used_at"), "");
+
+            // Get current subscription for this buyer
+            String plan = "FREE";
+            String startDate = "", endDate = "";
+            boolean isActive = false;
+            try {
+                Map<String, Object> sub = subJdbc.queryForMap(
+                        "SELECT plan, start_date, end_date, is_active FROM user_subscriptions WHERE user_id = ?", buyerId);
+                plan     = Objects.toString(sub.get("plan"), "FREE");
+                startDate= Objects.toString(sub.get("start_date"), "");
+                endDate  = Objects.toString(sub.get("end_date"), "");
+                isActive = Boolean.TRUE.equals(sub.get("is_active"));
+            } catch (Exception ignored) {}
+
+            if ("PREMIUM".equals(plan)) premiumCount++;
+            else if ("ULTRA".equals(plan)) ultraCount++;
+
+            // Get buyer name
+            String buyerName = buyerId;
+            try {
+                buyerName = userJdbc.queryForObject(
+                        "SELECT name FROM user_profiles WHERE id::text = ?", String.class, buyerId);
+            } catch (Exception ignored) {}
+
+            details.add(ReferralUserDetail.builder()
+                    .buyerUserId(buyerId)
+                    .buyerName(buyerName != null ? buyerName : buyerId)
+                    .currentPlan(plan)
+                    .startDate(startDate)
+                    .endDate(endDate)
+                    .isActive(isActive)
+                    .usedAt(usedAt)
+                    .build());
+        }
+
+        return ReferralPlanStats.builder()
+                .totalUsed(usageRows.size())
+                .premiumCount(premiumCount)
+                .ultraCount(ultraCount)
+                .usages(details)
+                .build();
+    }
+
+    // ── Subscription Purchase History ─────────────────────────────────────────────
+
+    public List<SubscriptionHistoryEntry> getSubscriptionHistory(String userId) {
+        // Try the detailed history table first (populated for new purchases going forward)
+        try {
+            List<SubscriptionHistoryEntry> history = subJdbc.query(
+                    "SELECT plan, payment_id, payment_provider, start_date, end_date, is_renewal, purchased_at " +
+                    "FROM subscription_purchase_history WHERE user_id = ? ORDER BY purchased_at DESC",
+                    new Object[]{userId},
+                    (rs, rn) -> SubscriptionHistoryEntry.builder()
+                            .plan(rs.getString("plan"))
+                            .paymentId(rs.getString("payment_id"))
+                            .paymentProvider(rs.getString("payment_provider"))
+                            .startDate(Objects.toString(rs.getObject("start_date"), ""))
+                            .endDate(Objects.toString(rs.getObject("end_date"), ""))
+                            .isRenewal(rs.getBoolean("is_renewal"))
+                            .purchasedAt(Objects.toString(rs.getObject("purchased_at"), ""))
+                            .build());
+            if (!history.isEmpty()) return history;
+        } catch (Exception e) {
+            log.warn("subscription_purchase_history query failed: {}", e.getMessage());
+        }
+
+        // Fallback: read current subscription from user_subscriptions for existing users
+        try {
+            return subJdbc.query(
+                    "SELECT plan, payment_id, payment_provider, start_date, end_date, " +
+                    "  is_active, cancelled_at, created_at, updated_at " +
+                    "FROM user_subscriptions WHERE user_id = ? AND plan != 'FREE'",
+                    new Object[]{userId},
+                    (rs, rn) -> {
+                        String createdAt  = Objects.toString(rs.getObject("created_at"), "");
+                        String updatedAt  = Objects.toString(rs.getObject("updated_at"), "");
+                        String cancelledAt= Objects.toString(rs.getObject("cancelled_at"), "");
+                        List<SubscriptionHistoryEntry> entries = new ArrayList<>();
+
+                        // Current / most recent entry
+                        entries.add(SubscriptionHistoryEntry.builder()
+                                .plan(rs.getString("plan"))
+                                .paymentId(rs.getString("payment_id"))
+                                .paymentProvider(rs.getString("payment_provider"))
+                                .startDate(Objects.toString(rs.getObject("start_date"), ""))
+                                .endDate(Objects.toString(rs.getObject("end_date"), ""))
+                                .isRenewal(false)
+                                .purchasedAt(createdAt)
+                                .build());
+
+                        // If cancelled, add a cancellation entry
+                        if (cancelledAt != null && !cancelledAt.isBlank() && !"null".equals(cancelledAt)) {
+                            entries.add(SubscriptionHistoryEntry.builder()
+                                    .plan("CANCELLED")
+                                    .paymentId("")
+                                    .paymentProvider("")
+                                    .startDate("")
+                                    .endDate("")
+                                    .isRenewal(false)
+                                    .purchasedAt(cancelledAt)
+                                    .build());
+                        }
+
+                        return entries;
+                    })
+                    .stream().flatMap(List::stream)
+                    .sorted(Comparator.comparing(SubscriptionHistoryEntry::getPurchasedAt).reversed())
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.warn("getSubscriptionHistory fallback failed: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     // ── Delete Comment from a Mood Post ──────────────────────────────────────────

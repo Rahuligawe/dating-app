@@ -206,6 +206,9 @@ public class AuthService {
             }
         }
 
+        // Check if user is blocked by admin
+        checkNotBlocked(user.getId());
+
         return buildAuthResponse(user, isNew);
     }
 
@@ -251,10 +254,36 @@ public class AuthService {
         AuthUser user = authUserRepository.findById(userId)
                 .orElseThrow(() -> new AuthException("User not found"));
 
+        // Check if user is blocked by admin
+        checkNotBlocked(userId);
+
         return buildAuthResponse(user, false);
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────
+
+    private void checkNotBlocked(String userId) {
+        try {
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.set("X-Internal-Secret", "auralink-internal-2024");
+            var entity = new org.springframework.http.HttpEntity<>(null, headers);
+            var resp = restTemplate.exchange(
+                    userServiceUrl + "/api/users/internal/" + userId + "/status",
+                    org.springframework.http.HttpMethod.GET, entity,
+                    new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {});
+            if (resp.getBody() != null) {
+                Object blocked = resp.getBody().get("isBlocked");
+                if (Boolean.TRUE.equals(blocked)) {
+                    throw new AuthException("ACCOUNT_SUSPENDED: Your account has been suspended due to a complaint received. Once a decision has been taken, your account will be unblocked. You can contact the admin to raise an unblock request.");
+                }
+            }
+        } catch (AuthException e) {
+            throw e;
+        } catch (Exception e) {
+            // Non-fatal — if user-service is unavailable, allow login
+            log.warn("Could not check user block status for {}: {}", userId, e.getMessage());
+        }
+    }
 
     private AuthResponse buildAuthResponse(AuthUser user, boolean isNew) {
         String accessToken = jwtService.generateAccessToken(user.getId(), user.getRole().name());
