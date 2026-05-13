@@ -105,5 +105,5 @@ public class UserProfile {
     public enum RelationshipType {
         FRIENDSHIP, DATING, LONG_TERM, MARRIAGE, CASUAL, PARTY_PARTNER, TRAVEL_PARTNER
     }
-    public enum SubscriptionType { FREE, PREMIUM, ULTRA }
+    public enum SubscriptionType { FREE, WEEKLY, PREMIUM, ULTRA }
 }
