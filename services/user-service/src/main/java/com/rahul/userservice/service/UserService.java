@@ -467,6 +467,7 @@ public class UserService {
         if (p.getSubscriptionType() == null) return 5;
         return switch (p.getSubscriptionType()) {
             case FREE     -> 5;
+            case WEEKLY   -> 5;
             case PREMIUM  -> 10;
             case ULTRA    -> 20;
         };
