@@ -212,10 +212,9 @@ public class SwipeService {
             String plan = (String) sub.get("plan");
             if (plan == null) return 50;
 
-            // Plan ke hisaab se limit
             return switch (plan.toUpperCase()) {
-                case "PREMIUM", "ULTRA" -> Integer.MAX_VALUE; // unlimited
-                default -> fetchFreeDailyLimit(); // DB se FREE plan ka limit
+                case "WEEKLY", "PREMIUM", "ULTRA" -> Integer.MAX_VALUE; // unlimited
+                default -> fetchFreeDailyLimit();
             };
 
         } catch (Exception e) {

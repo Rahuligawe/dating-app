@@ -33,17 +33,19 @@ public class SubscriptionController {
         return ResponseEntity.ok(subscriptionService.getSubscription(userId));
     }
 
-    // Returns plan + endDate + daysLeft — used by Android SettingsActivity
+    // Returns plan + endDate + daysLeft + expiryDateTime — used by Android SettingsActivity
     @GetMapping("/my/status")
     public ResponseEntity<Map<String, Object>> getMyStatus(
             @RequestHeader("X-User-Id") String userId) {
         UserSubscription sub = subscriptionService.getSubscription(userId);
         Map<String, Object> res = new HashMap<>();
-        res.put("plan",        sub.getPlan().name());
-        res.put("isActive",    sub.getIsActive());
-        res.put("endDate",     sub.getEndDate() != null ? sub.getEndDate().toString() : null);
-        res.put("cancelled",   sub.getCancelledAt() != null);
-        res.put("cancelledAt", sub.getCancelledAt() != null ? sub.getCancelledAt().toString() : null);
+        res.put("plan",             sub.getPlan().name());
+        res.put("isActive",         sub.getIsActive());
+        res.put("endDate",          sub.getEndDate() != null ? sub.getEndDate().toString() : null);
+        res.put("expiryDateTime",   sub.getEndDate() != null ? sub.getEndDate().toString() : null);
+        res.put("cancelled",        sub.getCancelledAt() != null);
+        res.put("cancelledAt",      sub.getCancelledAt() != null ? sub.getCancelledAt().toString() : null);
+        res.put("isAutoRenew",      Boolean.TRUE.equals(sub.getIsAutoRenew()));
         long daysLeft = (sub.getEndDate() != null && sub.getPlan() != UserSubscription.Plan.FREE)
                 ? ChronoUnit.DAYS.between(LocalDateTime.now(), sub.getEndDate())
                 : 0;
@@ -65,7 +67,7 @@ public class SubscriptionController {
     @GetMapping("/plans/all")
     public ResponseEntity<List<PlanFeatures>> getAllPlans() {
         return ResponseEntity.ok(
-                Arrays.stream(new Plan[]{Plan.FREE, Plan.PREMIUM, Plan.ULTRA})
+                Arrays.stream(new Plan[]{Plan.FREE, Plan.WEEKLY, Plan.PREMIUM, Plan.ULTRA})
                         .map(subscriptionService::getPlanFeatures).toList());
     }
 
@@ -233,28 +235,65 @@ public class SubscriptionController {
         ));
     }
 
+    // Create auto-renewing subscription mandate (PREMIUM/ULTRA only)
+    @PostMapping("/subscription/create")
+    public ResponseEntity<?> createSubscriptionMandate(
+            @RequestHeader("X-User-Id") String userId,
+            @RequestBody Map<String, Object> body) {
+        try {
+            String planStr      = (String) body.get("plan");
+            boolean yearly      = Boolean.TRUE.equals(body.get("yearly"));
+            String customerPhone = (String) body.get("customerPhone");
+
+            Plan plan = Plan.valueOf(planStr.toUpperCase());
+            Map<String, Object> result = subscriptionService.createSubscriptionMandate(
+                    userId, plan, yearly, customerPhone);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Create subscription mandate failed: {}", e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     // ── Cashfree Webhook ──────────────────────────────────────────────────────
-    // Cashfree calls this automatically on payment success/failure
+    @SuppressWarnings("unchecked")
     @PostMapping("/cashfree-webhook")
     public ResponseEntity<Void> cashfreeWebhook(@RequestBody Map<String, Object> payload) {
         try {
-            log.info("Cashfree webhook received: type={}", payload.get("type"));
+            String type = (String) payload.get("type");
+            log.info("Cashfree webhook received: type={}", type);
             Map<String, Object> data = (Map<String, Object>) payload.get("data");
             if (data == null) return ResponseEntity.ok().build();
 
-            Map<String, Object> order = (Map<String, Object>) data.get("order");
-            if (order == null) return ResponseEntity.ok().build();
+            // ── One-time order payment ──
+            if (data.containsKey("order")) {
+                Map<String, Object> order = (Map<String, Object>) data.get("order");
+                if (order != null) {
+                    String orderId     = (String) order.get("order_id");
+                    String orderStatus = (String) order.get("order_status");
+                    if ("PAID".equals(orderStatus) && orderId != null) {
+                        subscriptionService.activateByWebhook(orderId);
+                    }
+                }
+            }
 
-            String orderId    = (String) order.get("order_id");
-            String orderStatus = (String) order.get("order_status");
-
-            if ("PAID".equals(orderStatus) && orderId != null) {
-                subscriptionService.activateByWebhook(orderId);
+            // ── Recurring subscription events ──
+            if (data.containsKey("subscription")) {
+                Map<String, Object> sub = (Map<String, Object>) data.get("subscription");
+                if (sub != null) {
+                    String subId  = (String) sub.get("subscription_id");
+                    String status = (String) sub.get("subscription_status");
+                    if (subId != null && status != null) {
+                        // ACTIVATED = mandate approved; CHARGE_COMPLETED = recurring charge ok
+                        if ("ACTIVATED".equals(status) || "CHARGE_COMPLETED".equals(status)) {
+                            subscriptionService.activateSubscriptionByWebhook(subId, status);
+                        }
+                    }
+                }
             }
         } catch (Exception e) {
             log.error("Webhook processing error: {}", e.getMessage(), e);
         }
-        // Always return 200 — Cashfree retries on non-2xx
         return ResponseEntity.ok().build();
     }
 

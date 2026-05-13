@@ -33,11 +33,18 @@ public class UserSubscription {
 
     private LocalDateTime cancelledAt;
 
+    // For PREMIUM/ULTRA auto-renewing subscriptions via Cashfree
+    private String cashfreeSubscriptionId;
+
+    @Builder.Default
+    private Boolean isAutoRenew = false;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
-    public enum Plan { FREE, PREMIUM, ULTRA }
+    // FREE < WEEKLY < PREMIUM < ULTRA
+    public enum Plan { FREE, WEEKLY, PREMIUM, ULTRA }
 }

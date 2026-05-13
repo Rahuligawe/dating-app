@@ -34,14 +34,16 @@ public class SubscriptionService {
     private final ReferralService                       referralService;
     private final CashfreeService                       cashfreeService;
 
-    // Prices from DB — fallback hardcoded
+    // Prices from DB — fallback hardcoded (in paise for Cashfree, ₹ * 100)
     public static final Map<Plan, Integer> MONTHLY_PRICES = Map.of(
             Plan.FREE,    0,
+            Plan.WEEKLY,  4900,   // ₹49/week — one-time
             Plan.PREMIUM, 9900,
             Plan.ULTRA,   29900
     );
     public static final Map<Plan, Integer> YEARLY_PRICES = Map.of(
             Plan.FREE,    0,
+            Plan.WEEKLY,  4900,   // same — weekly has no yearly option
             Plan.PREMIUM, 69900,
             Plan.ULTRA,   199900
     );
@@ -119,6 +121,10 @@ public class SubscriptionService {
                     .dailySwipes(50).unlimitedSwipes(false).seeWhoLikedYou(false)
                     .superLikesPerDay(0).hasAds(true)
                     .priceMonthly(0).priceYearly(0).build();
+            case WEEKLY  -> PlanFeatures.builder().plan(Plan.WEEKLY)
+                    .unlimitedSwipes(true).seeWhoLikedYou(false)
+                    .superLikesPerDay(0).hasAds(false).readReceipts(false)
+                    .priceMonthly(49).priceYearly(49).build();  // 49 = weekly price
             case PREMIUM -> PlanFeatures.builder().plan(Plan.PREMIUM)
                     .unlimitedSwipes(true).seeWhoLikedYou(true)
                     .superLikesPerDay(5).hasAds(false).readReceipts(true)
@@ -267,6 +273,99 @@ public class SubscriptionService {
         return upgradePlan(userId, plan, "POINTS_REDEMPTION", "POINTS", yearly);
     }
 
+    /** Create Cashfree subscription mandate for auto-renewing PREMIUM/ULTRA plans */
+    public Map<String, Object> createSubscriptionMandate(String userId, Plan plan,
+                                                          boolean yearly, String customerPhone) {
+        if (plan == Plan.FREE || plan == Plan.WEEKLY) {
+            throw new IllegalArgumentException("Use createPaymentOrder for FREE/WEEKLY plans");
+        }
+        checkUpgradeAllowed(userId, plan);
+
+        PlanFeatures features = getPlanFeatures(plan);
+        int amountRupees = yearly ? features.getPriceYearly() : features.getPriceMonthly();
+        if (amountRupees == 0) {
+            amountRupees = yearly
+                    ? (YEARLY_PRICES.get(plan) / 100)
+                    : (MONTHLY_PRICES.get(plan) / 100);
+        }
+
+        String intervalType  = yearly ? "YEAR" : "MONTH";
+        int    intervalCount = 1;
+        String planName      = plan.name() + " " + (yearly ? "Yearly" : "Monthly");
+        String subId = "SUB_" + userId.replaceAll("[^a-zA-Z0-9]", "").substring(0, Math.min(8, userId.length()))
+                + "_" + (System.currentTimeMillis() % 1000000000L);
+        String returnUrl = "auralink://subscription-callback";
+
+        Map<String, Object> result = cashfreeService.createRecurringSubscription(
+                subId, planName, amountRupees, intervalType, intervalCount,
+                userId, customerPhone, returnUrl);
+
+        // Store pending subscription ID so webhook can activate it
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("userId",  userId);
+        meta.put("plan",    plan.name());
+        meta.put("yearly",  String.valueOf(yearly));
+        meta.put("type",    "SUBSCRIPTION");
+        redisTemplate.opsForHash().putAll("sub:meta:" + subId, meta);
+        redisTemplate.expire("sub:meta:" + subId, 24, TimeUnit.HOURS);
+
+        result = new HashMap<>(result);
+        result.put("plan",   plan.name());
+        result.put("yearly", yearly);
+        return result;
+    }
+
+    /** Called by webhook when Cashfree subscription is activated / charge succeeds */
+    @Transactional
+    public void activateSubscriptionByWebhook(String cashfreeSubId, String event) {
+        Map<Object, Object> meta = redisTemplate.opsForHash().entries("sub:meta:" + cashfreeSubId);
+        if (meta == null || meta.isEmpty()) {
+            // Try to find existing subscription by cashfreeSubscriptionId
+            subscriptionRepository.findByCashfreeSubscriptionId(cashfreeSubId).ifPresent(sub -> {
+                if ("CHARGE_COMPLETED".equals(event)) {
+                    boolean yearly = sub.getEndDate() != null
+                            && sub.getEndDate().minusDays(360).isAfter(sub.getStartDate());
+                    renewSubscription(sub, yearly);
+                }
+            });
+            return;
+        }
+
+        String userId = (String) meta.get("userId");
+        Plan   plan   = Plan.valueOf((String) meta.get("plan"));
+        boolean yearly = "true".equals(meta.get("yearly"));
+
+        if ("ACTIVATED".equals(event) || "CHARGE_COMPLETED".equals(event)) {
+            UserSubscription sub = upgradePlan(userId, plan, cashfreeSubId, "CASHFREE_SUBSCRIPTION", yearly);
+            sub.setCashfreeSubscriptionId(cashfreeSubId);
+            sub.setIsAutoRenew(true);
+            subscriptionRepository.save(sub);
+            if ("ACTIVATED".equals(event)) {
+                redisTemplate.delete("sub:meta:" + cashfreeSubId);
+            }
+            log.info("Subscription {} activated/charged: userId={} plan={}", cashfreeSubId, userId, plan);
+        }
+    }
+
+    /** Extend subscription by one billing cycle (called on successful auto-charge) */
+    private void renewSubscription(UserSubscription sub, boolean yearly) {
+        LocalDateTime newEnd = yearly
+                ? (sub.getEndDate() != null ? sub.getEndDate().plusYears(1) : LocalDateTime.now().plusYears(1))
+                : (sub.getEndDate() != null ? sub.getEndDate().plusMonths(1) : LocalDateTime.now().plusMonths(1));
+        sub.setEndDate(newEnd);
+        sub.setIsActive(true);
+        sub.setCancelledAt(null);
+        subscriptionRepository.save(sub);
+
+        int ttlDays = yearly ? 366 : 32;
+        redisTemplate.opsForValue().set("user:premium:" + sub.getUserId(), "true", ttlDays, TimeUnit.DAYS);
+        streamPublisher.publish("notification.send", Map.of(
+                "userId", sub.getUserId(), "type", "SUBSCRIPTION_RENEWED",
+                "title",  "Plan Renewed! 🎉",
+                "body",   sub.getPlan().name() + " plan has been renewed successfully"));
+        log.info("Subscription renewed: userId={} plan={} newEnd={}", sub.getUserId(), sub.getPlan(), newEnd);
+    }
+
     @Transactional
     public UserSubscription upgradePlan(String userId, Plan newPlan,
                                         String paymentId, String paymentProvider,
@@ -277,14 +376,15 @@ public class SubscriptionService {
         sub.setPaymentId(paymentId);
         sub.setPaymentProvider(paymentProvider);
         sub.setStartDate(LocalDateTime.now());
-        sub.setEndDate(yearly
-                ? LocalDateTime.now().plusYears(1)
-                : LocalDateTime.now().plusMonths(1));
+        // WEEKLY = 7 days; YEARLY = 1 year; else 1 month
+        sub.setEndDate(newPlan == Plan.WEEKLY
+                ? LocalDateTime.now().plusDays(7)
+                : yearly ? LocalDateTime.now().plusYears(1) : LocalDateTime.now().plusMonths(1));
         sub.setIsActive(true);
         sub.setCancelledAt(null);
+        if (newPlan == Plan.WEEKLY) sub.setIsAutoRenew(false);
         UserSubscription saved = subscriptionRepository.save(sub);
 
-        // Track purchase history for admin dashboard
         if (newPlan != Plan.FREE) {
             boolean isRenewal = sub.getId() != null;
             purchaseHistoryRepository.save(SubscriptionPurchaseHistory.builder()
@@ -299,7 +399,7 @@ public class SubscriptionService {
         }
 
         if (newPlan != Plan.FREE) {
-            int ttlDays = yearly ? 366 : 32;
+            int ttlDays = newPlan == Plan.WEEKLY ? 8 : (yearly ? 366 : 32);
             redisTemplate.opsForValue().set("user:premium:" + userId, "true", ttlDays, TimeUnit.DAYS);
         }
         streamPublisher.publish("subscription.updated",
@@ -382,7 +482,7 @@ public class SubscriptionService {
     }
 
     // ── Plan Hierarchy Guard ──────────────────────────────────────────────────
-    // FREE < PREMIUM < ULTRA (ordinal order matches enum declaration)
+    // FREE(0) < WEEKLY(1) < PREMIUM(2) < ULTRA(3)
     // Blocks: same-plan re-purchase and downgrades while subscription is still active
     private void checkUpgradeAllowed(String userId, Plan newPlan) {
         UserSubscription current = getSubscription(userId);
@@ -391,18 +491,30 @@ public class SubscriptionService {
                         && current.getEndDate() != null
                         && current.getEndDate().isAfter(LocalDateTime.now());
 
-        if (currentPlan == Plan.FREE || !isActive) return; // always allow upgrade from FREE / expired
+        if (currentPlan == Plan.FREE || !isActive) return;
 
-        if (newPlan.ordinal() == currentPlan.ordinal()) {
+        int currentRank = planRank(currentPlan);
+        int newRank     = planRank(newPlan);
+
+        if (newRank == currentRank) {
             throw new IllegalArgumentException(
                 "You are already on " + currentPlan.name() + " plan. " +
                 "Wait for your current subscription to end before resubscribing.");
         }
-        if (newPlan.ordinal() < currentPlan.ordinal()) {
+        if (newRank < currentRank) {
             throw new IllegalArgumentException(
                 "Cannot switch from " + currentPlan.name() + " to " + newPlan.name() + ". " +
                 "Wait for your current subscription to end.");
         }
+    }
+
+    private int planRank(Plan plan) {
+        return switch (plan) {
+            case FREE    -> 0;
+            case WEEKLY  -> 1;
+            case PREMIUM -> 2;
+            case ULTRA   -> 3;
+        };
     }
 
     // Backward compat

@@ -13,7 +13,8 @@ public interface SubscriptionRepository
 
     Optional<UserSubscription> findByUserId(String userId);
 
-    // Used by scheduled expiry job — find all paid plans where endDate has passed
+    Optional<UserSubscription> findByCashfreeSubscriptionId(String cashfreeSubscriptionId);
+
     List<UserSubscription> findByPlanNotAndEndDateBeforeAndIsActiveTrue(
             Plan plan, LocalDateTime now);
 }

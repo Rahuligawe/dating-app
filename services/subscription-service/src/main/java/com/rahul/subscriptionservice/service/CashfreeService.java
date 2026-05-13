@@ -87,6 +87,84 @@ public class CashfreeService {
     }
 
     /**
+     * Creates a recurring subscription (UPI AutoPay / card mandate) for PREMIUM/ULTRA plans.
+     * Returns: subscriptionId, authLink (user must open to approve mandate)
+     */
+    public Map<String, Object> createRecurringSubscription(
+            String subscriptionId, String planName, int amountRupees,
+            String intervalType, int intervalCount, String userId,
+            String customerPhone, String returnUrl) {
+
+        Map<String, Object> plan = new HashMap<>();
+        plan.put("plan_type", "PERIODIC");
+        plan.put("plan_name", planName);
+        plan.put("plan_currency", "INR");
+        plan.put("plan_recurring_amount", amountRupees);
+        plan.put("plan_interval_type", intervalType);  // MONTH or YEAR
+        plan.put("plan_intervals", intervalCount);
+        plan.put("plan_max_cycles", intervalType.equals("YEAR") ? 10 : 120);
+
+        Map<String, Object> customer = new HashMap<>();
+        customer.put("customer_id", userId.replaceAll("[^a-zA-Z0-9_-]", "").substring(0, Math.min(50, userId.length())));
+        customer.put("customer_phone", customerPhone != null ? customerPhone : "9999999999");
+
+        Map<String, Object> authDetails = new HashMap<>();
+        authDetails.put("authorization_amount", 1);  // ₹1 auth charge
+
+        // First charge starts now
+        String firstChargeTime = java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Kolkata"))
+                .plusMinutes(5)
+                .format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("subscription_id", subscriptionId);
+        body.put("plan", plan);
+        body.put("customer_details", customer);
+        body.put("authorization_details", authDetails);
+        body.put("subscription_first_charge_time", firstChargeTime);
+        body.put("subscription_return_url", returnUrl);
+        body.put("subscription_note", planName + " - AuraLink");
+
+        HttpHeaders headers = buildHeaders();
+        headers.set("x-api-version", "2023-08-01");
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+        try {
+            ResponseEntity<Map> response = restTemplate.postForEntity(
+                    getBaseUrl() + "/subscriptions", request, Map.class);
+            Map<String, Object> resp = response.getBody();
+            log.info("Cashfree subscription created: subId={} status={}", subscriptionId, resp.get("subscription_status"));
+            return Map.of(
+                    "subscriptionId", resp.getOrDefault("subscription_id", subscriptionId),
+                    "authLink",       resp.getOrDefault("auth_link", ""),
+                    "status",         resp.getOrDefault("subscription_status", "INITIALIZED")
+            );
+        } catch (Exception e) {
+            log.error("Cashfree subscription creation failed: {}", e.getMessage());
+            throw new RuntimeException("Subscription creation failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Gets subscription status from Cashfree.
+     */
+    public String getSubscriptionStatus(String subscriptionId) {
+        HttpHeaders headers = buildHeaders();
+        headers.set("x-api-version", "2023-08-01");
+        HttpEntity<?> request = new HttpEntity<>(headers);
+        try {
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    getBaseUrl() + "/subscriptions/" + subscriptionId,
+                    HttpMethod.GET, request, Map.class);
+            Map<String, Object> resp = response.getBody();
+            return (String) resp.getOrDefault("subscription_status", "UNKNOWN");
+        } catch (Exception e) {
+            log.error("Cashfree get subscription status failed: {}", e.getMessage());
+            return "UNKNOWN";
+        }
+    }
+
+    /**
      * Verifies payment by fetching order status from Cashfree API.
      * Returns true if order_status == "PAID".
      */

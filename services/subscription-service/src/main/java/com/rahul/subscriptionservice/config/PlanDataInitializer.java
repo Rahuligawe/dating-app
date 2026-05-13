@@ -35,6 +35,23 @@ public class PlanDataInitializer implements CommandLineRunner {
                 .build());
 
         insertIfAbsent(SubscriptionPlan.builder()
+                .plan(Plan.WEEKLY)
+                .dailySwipes(0)
+                .unlimitedSwipes(true)
+                .seeWhoLikedYou(false)
+                .superLikesPerDay(0)
+                .hasAds(false)
+                .readReceipts(false)
+                .profileBoostsPerWeek(0)
+                .aiCompatibilityScore(false)
+                .travelVisibilityBoost(false)
+                .topProfileRanking(false)
+                .maxPhotos(5)
+                .priceMonthly(49)   // 49 = weekly price (no monthly/yearly for WEEKLY)
+                .priceYearly(49)
+                .build());
+
+        insertIfAbsent(SubscriptionPlan.builder()
                 .plan(Plan.PREMIUM)
                 .dailySwipes(0)            // unlimited
                 .unlimitedSwipes(true)
